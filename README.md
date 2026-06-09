@@ -25,11 +25,11 @@ This is your project home for the FURP programme. **Fork this template**, rename
 
 | Field | Your entry |
 |---|---|
-| Student name(s) | _e.g. Jason Zhang_ |
-| Project title | _..._ |
+| Student name(s) | _Jiakai YING_ |
+| Project title | _Ground–Air Collaborative EVRP-TW: Hybrid Optimization for Truck-Drone Delivery_ |
 | Project tag | _e.g. ROSBootcamp_ |
 | Track | Research |
-| Supervising faculty | _..._ |
+| Supervising faculty | _Tianxiang Cui_ |
 | Project lead | _..._ |
 | Team or individual | _..._ |
 | Cited paper being replicated | _title + link/DOI_ |
