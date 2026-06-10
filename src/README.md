@@ -1,17 +1,25 @@
-# `/src` — your work goes here
+# `/src` — Ground–Air Collaborative EVRP-TW: Hybrid Optimization
 
-Put all your code, scripts, notebooks, experiment configs, and project materials in this folder.
+> **Hybrid Optimization for Truck-Drone Electric Vehicle Routing Problem with Time Windows**
 
-**Research Track reminder:** your project should reproduce a cited paper and add **at least 10% innovation** (something new on top of the replication). Organise this folder however suits your project, but keep it tidy enough that a reviewer can follow what you did.
-
-Suggested (not mandatory) layout:
+## Directory Structure
 
 ```
 /src
- ├── README.md          ← how to run your code / what's here
- ├── data/              ← datasets (or links if too large to commit)
+ ├── README.md          ← this file
+ ├── data/              ← benchmark instances
  ├── experiments/       ← scripts, notebooks, configs
- └── results/           ← outputs, figures, logs
+ └── results/           ← output logs, figures, tables
 ```
 
-> Don't commit large datasets or secrets/credentials. Link to data sources instead.
+## Getting Started
+
+_TBD_
+
+## Notes
+
+- Large datasets or credentials should **not** be committed directly. Use `.gitignore` or external links instead.
+
+---
+
+_Project by Jiakai YING · Supervised by Tianxiang Cui · UNNC FURP 2026_
