@@ -27,8 +27,9 @@ Thumbs.db
 *.h5
 *.ckpt
 *.pth
-data/
-!**/data/.gitkeep
+data/**
+!data/.gitkeep
+!data/README.md
 
 # Secrets — NEVER commit credentials
 .env
