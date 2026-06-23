@@ -65,7 +65,7 @@
 - OR-Tools VRP solver: `src/experiments/vrp_ortools_simple.py`
 - Route visualization: `src/results/vrp_ortools_route.png`
 
-### Week 1 — 2026-06-23
+### Week 2 — 2026-06-23
 
 **Attended this week's meeting:** No (email leave: No)
 
