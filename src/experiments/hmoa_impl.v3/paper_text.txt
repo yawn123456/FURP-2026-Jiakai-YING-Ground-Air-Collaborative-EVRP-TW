@@ -1,0 +1,1890 @@
+===== PAGE 1 =====
+IEEE TRANSACTIONS ON INTELLIGENT TRANSPORTATION SYSTEMS, VOL. 23, NO. 8, AUGUST 2022
+13011
+Hybrid Multi-Objective Optimization Approach
+With Pareto Local Search for Collaborative
+Truck-Drone Routing Problems Considering
+Flexible Time Windows
+Qizhang Luo
+, Guohua Wu
+, Member, IEEE, Bin Ji
+, Ling Wang
+,
+and Ponnuthurai Nagaratnam Suganthan , Fellow, IEEE
+Abstract—The collaboration of drones and trucks for last-mile
+delivery has attracted much attention. In this paper, we address a
+collaborative routing problem of the truck-drone system, in which
+a truck collaborates with multiple drones to perform parcel
+deliveries and each customer can be served earlier and later than
+the required time with a given tolerance. To meet the practical
+demands of logistics companies, we build a multi-objective opti-
+mization model that minimizes total distribution cost and max-
+imizes overall customer satisfaction simultaneously. We propose
+a hybrid multi-objective genetic optimization approach incorpo-
+rated with a Pareto local search algorithm to solve the problem.
+Particularly, we develop a greedy-based heuristic method to
+create initial solutions and introduce a problem-speciﬁc solution
+representation, genetic operations, as well as six heuristic neigh-
+borhood strategies for the hybrid algorithm. Besides, an adaptive
+strategy is adopted to further balance the convergence and
+the diversity of the hybrid algorithm. The performance of the
+proposed algorithm is evaluated by using a set of benchmark
+instances. The experimental results show that the proposed
+algorithm outperforms three competitors. Furthermore, we inves-
+tigate the sensitivity of the proposed model and hybrid algorithm
+based on a real-world case in Changsha city, China.
+Index Terms—Last-mile delivery, truck-drone collaborative
+routing problem, ﬂexible time windows, multi-objective optimiza-
+tion, hybrid optimization algorithm.
+I. INTRODUCTION
+S
+MALL unmanned aerial vehicles (UAV), also known as
+drones, have been deployed to perform rapid and accurate
+Manuscript received 6 May 2021; revised 3 October 2021; accepted 5
+October 2021. Date of publication 19 October 2021; date of current version
+9 August 2022. This work was supported in part by the National Natural
+Science Foundation of China under Grant 62073341 and Grant 61873328,
+in part by the Natural Science Fund for Distinguished Young Scholars
+of Hunan Province under Grant 2019JJ20026, and in part by the China
+Scholarship Council under Grant 202006370285. The Associate Editor for
+this article was A. Nunez. (Corresponding authors: Guohua Wu; Ling Wang.)
+Qizhang Luo, Guohua Wu, and Bin Ji are with the School of Trafﬁc
+and Transportation Engineering, Central South University, Changsha 410075,
+China
+(e-mail:
+qz_luo@csu.edu.cn;
+guohuawu@csu.edu.cn;
+cumtjibin@
+126.com).
+Ling Wang is with the Department of Automation, Tsinghua University,
+Beijing 100084, China (e-mail: wangling@mail.tsinghua.edu.cn).
+Ponnuthurai Nagaratnam Suganthan is with the School of Electrical
+and Electronic Engineering, Nanyang Technological University, Singapore
+639798, and also with KINDI Center for Computing Research, College of
+Engineering, Qatar University, Qatar (e-mail: epnsugan@ntu.edu.sg).
+This
+article
+has
+supplementary
+downloadable
+material
+available
+at
+https://doi.org/10.1109/TITS.2021.3119080, provided by the authors.
+Digital Object Identiﬁer 10.1109/TITS.2021.3119080
+deliveries in recent years. Drones can travel faster than trucks
+and are not limited by road conditions, resulting in signiﬁcant
+reductions in the cost and time for delivering parcels [1], [2].
+However, drones face shortages such as the relatively short
+travel range and limited capacity [3]. In this case, the truck-
+drone delivery system in which trucks and drones work
+collaboratively has attached attention from both industry and
+academia [1], [4].
+The truck-drone delivery system combines the advantages
+of drones and trucks. In this system, while a truck travels
+between different customer nodes, drones can be launched
+from the truck to serve nearby customer nodes simultane-
+ously. Some customer nodes that are unable to reach by
+truck due to road conditions (e.g., trafﬁc congestions) can
+be served by drones efﬁciently. Meanwhile, the truck can
+supply new parcels and batteries to drones. Although some
+industrial companies such as UPS and Amazon have tested
+their truck-drone delivery system since 2017 [1], [4], truck-
+drone collaborative routing problems still call for further
+investigations.
+Since Murray and Chu [2] ﬁrst introduced the collaborative
+routing problem of drones and trucks in 2015, many relevant
+studies have been carried out [3], [5]–[8]. Previous studies
+have proved that typical collaborative routing problems of
+drones and trucks belong to the class of NP-hard problems,
+thereby the difﬁculty for solving a collaborative routing prob-
+lem increases with the number of drones and trucks [4],
+[8], [9]. In this paper, we address the collaborative routing
+problem with multiple drones and a truck, which is more
+challenging than the classical problem that involves one drone
+and one truck. Meanwhile, our problem is more realistic since
+it has been proved that multiple drones show more beneﬁts
+than one drone [4]. As the delivery problem appears in real
+life, some non-emergency parcel deliveries can violate the
+time windows to a certain extent when serving customers.
+Therefore, we allow each vehicle to be capable of serving
+a customer before and after the earliest and latest times with
+a given tolerance (i.e., ﬂexible time windows [10]). Since the
+violation of time window constraints may affect customer sat-
+isfaction [11], we consider two objectives (i.e., minimizing the
+routing costs of drones and trucks and maximizing customer
+satisfaction). Overall, we term this problem the multi-objective
+1558-0016 © 2021 IEEE. Personal use is permitted, but republication/redistribution requires IEEE permission.
+See https://www.ieee.org/publications/rights/index.html for more information.
+
+
+===== PAGE 2 =====
+13012
+IEEE TRANSACTIONS ON INTELLIGENT TRANSPORTATION SYSTEMS, VOL. 23, NO. 8, AUGUST 2022
+truck-drone collaborative routing problem considering ﬂexible
+time windows and multiple drones (Mo-CRPTW-mD).
+However,
+challenges
+are
+arisen
+for
+solving
+Mo-CRPTW-mD. In the optimization process, two objectives
+frequently conﬂict, which presents a particularly intricate
+multi-objective optimization problem (MOP). To address
+the MOP, a typical idea is to model the objective functions
+as a weighted combination (i.e., weighted-sum method).
+However, how to quantify the relative weights of costs and
+customer satisfaction is still an open research topic [11],
+especially
+when
+these
+two
+objectives
+exhibit
+different
+dimensions. In this context, population-based multi-objective
+optimization algorithms would be promising since they can
+provide a range of solutions that represent the trade-off
+between objectives, which is important for decision-makers
+to
+make an appropriate scheme according to
+practical
+situations. We propose a hybrid multi-objective optimization
+approach, which combines a population-based multi-objective
+algorithm and a Pareto local search algorithm (PLS) [12]. The
+motivation is multifold. First, population-based algorithms can
+generate several Pareto solutions per run and exhibit superior
+performance on MOPs [13]. Second, the population-based
+algorithm is a general algorithmic framework for global
+search, while PLS can effectively explore the local solution
+space. A hybrid algorithm with an appropriate combination
+mechanism can provide a balance between global exploration
+and local exploitation, which is very important in designing
+a multi-objective algorithm [14]. Third, different hybrid
+multi-objective algorithms have already been applied to
+various variants of routing problems and provided good
+results [11], [15], [16]. All these factors strongly motivate
+us to employ a hybrid population-based algorithm to solve
+Mo-CRPTW-mD.
+The main contributions of this paper are as follows. First,
+we introduce a multi-objective truck-drone collaborative rout-
+ing problem, namely, Mo-CRPTW-mD. In Mo-CRPTW-mD,
+a truck collaborated with a heterogeneous ﬂeet of drones
+performs parcel deliveries, and each customer can be visited
+exactly once by either a truck or a drone with permitting to
+deviate from customer time windows by a given tolerance.
+Second, we develop a hybrid multi-objective optimization
+approach to solve the Mo-CRPTW-mD, which is termed
+HMOA. A population-based algorithm framework inspired by
+the non-dominated sorting genetic algorithm (NSGA-II) [17]
+is developed to conduct the global search, while an improved
+Pareto local search (PLS) is hybridized with the global search
+framework. Meanwhile, problem-speciﬁc neighborhood search
+strategies and an adaptive strategy are designed to improve the
+efﬁciency of HMOA. Third, we conducted extensive experi-
+mental studies based on benchmark instances and a real-world
+case. Three population-based algorithms were compared with
+the proposed algorithm to verify its superiority.
+The remainder of this paper is organized as follows.
+Section II contains a brief overview of the relevant literature.
+Section III formally describes Mo-CRPTW-mD. Section IV
+presents our HMOA for solving the problem. Section V
+describes computational experiments. Section VI presents con-
+cluding remarks.
+II. RELATED WORK
+Previous studies can be divided into three categories based
+on the number of drones and trucks: single-drone and single-
+truck problem, multi-drone and single-truck problem, and
+multi-drone and multi-truck problem.
+The single-drone and single-truck problem is generally
+considered as either ﬂying sidekick traveling salesman prob-
+lem (FSTSP) or traveling salesman problem with drone
+(TSP-D), which was ﬁrst introduced by Murray and Chu [2]
+and Agatz et al. [3], respectively. In FSTSP, each drone must
+visit any node at most once. In contrast to the FSTSP, the
+TSP-D allows a drone to join the truck at the node where it
+was released. These two works serve as a basis for several
+extensions [5], [18]–[21]. For example, Ha et al. [5] proposed
+an extended version of FSTSP, which minimizes operational
+costs including total transportation cost and one created by
+waste time a vehicle has to wait for the other. Luo et al. [22]
+considered a variant of the classic two-echelon TSP, in which
+a truck travels on the road network and a drone travels in
+areas beyond the road for visiting nodes unreachable by the
+truck. A similar study was conducted by Liu et al. [23], which
+also considered an energy consumption model of the drone.
+In addition, several efﬁcient algorithms have been proposed
+for solving TSP-D, FSTSP, and their variants [19], [24]–[27],
+such as the branch-and-cut algorithm [24], decomposition-
+based iterative optimization algorithm [27], and variable
+neighborhood search algorithm [25].
+The multi-drone and single-truck problem is an extension
+of the single-drone and single-truck problem. Murray and
+Chu [2] presented a version called parallel drone scheduling
+TSP (PDSTSP). In PDSTSP, multiple drones are launched
+from a depot to serve nearby customers, and a truck serves
+other customers independently. Later, many studies have been
+carried out to extend this study [28]–[31]. For example,
+Mbiadou Saleu et al. [31] proposed an iterative two-step
+heuristic algorithm for PDSTSP. Dayarian et al. [28] focused
+on the same-day delivery problem, in which drones per-
+form supplying for a truck instead of delivering parcels.
+To overcome the ﬂight-range limitation, Kim and Moon [30]
+considered a drone station that stores drones and charging
+devices and positioned it near customers. Several studies
+also formulated the multi-drone and single truck problem
+by allowing multiple drones to be launched from a sin-
+gle truck [4], [32]–[34]. For example, Murray and Raj [4]
+introduced an extended version of the FSTSP, which allows
+multiple drones to be launched by a single truck and retrieved
+at a different location. Tu et al. [34] proposed an adaptive large
+neighborhood search heuristic (ALNS) for solving a similar
+problem. Moshref-Javadi et al. [32] developed an improved
+ALNS to solve a multi-drone and single-truck problem derived
+from real-world instances. Furthermore, several studies assume
+that the truck must wait for the return of all the drones
+launched before continuing its route at the same location [33],
+[35], [36].
+In the case of multi-drone and multi-truck problems, Wang
+and Sheu [8] proposed a branch-and-price algorithm to solve
+this kind of problem with 12-customer instances. Li et al. [37]
+investigated a two-echelon vehicle routing problem with time
+
+
+===== PAGE 3 =====
+LUO et al.: HMOA WITH PARETO LOCAL SEARCH FOR COLLABORATIVE TRUCK-DRONE ROUTING PROBLEMS
+13013
+windows and mobile satellites, in which the ﬁrst-echelon
+vehicles park at customer nodes and wait for second-echelon
+drones. Ham [38] extended the PDSTSP by introducing multi-
+ple drones and multiple trucks and solved the problem by using
+constraint programming. Ulmer and Thomas [39] proposed
+a dynamic collaborative vehicle routing problem, in which
+drones and trucks work separately and may serve a set of
+customers with a delivery deadline. Sacramento et al. [7] and
+Das et al. [40] extended the FSTSP, in which multiple trucks
+and each carrying a single drone perform the delivery.
+Multi-objective
+optimization
+has
+been
+considered
+in
+few studies. Wang et al. [26] extended the FSTSP to a
+multi-objective version and proposed an improved NSGA-II
+to optimize the cost and time of the routing simultaneously.
+Das et al. [40] considered the travel cost and the customer
+service level and proposed a modiﬁed ant colony optimization
+algorithm to solve the proposed problem. Note that this study
+is totally different from our study. The customer service
+level is calculated in a different manner compared with the
+customer satisfaction in our study. Moreover, in their study
+the truck only takes one drone, while we consider multiple
+drones, which yields more complex constraints. Salama and
+Srinivas [41] used the ε-constraint method to simultaneously
+optimize the customer node clustering and routing decisions.
+Nevertheless, due to the nature of NP-hard of collaborative
+vehicle routing problems [2], considering multiple objectives
+and multiple drones signiﬁcantly increase the complexity for
+solving already hard-to-solve problems. It is still challenging
+to solve the multi-objective collaborative routing problem with
+multiple drones and complex constraints.
+Although many above-mentioned studies are important and
+near equivalent to our paper, we deviate from them and
+ﬁll gaps in the following manner. First, to the best of our
+knowledge, we ﬁrst investigate a multi-objective truck-drone
+collaborative routing problem where the truck carries multiple
+drones and the routing costs and customer satisfaction are
+optimized simultaneously. Second, we adopt ﬂexible time
+windows to our problem, while most existing collaborative
+routing problems with time windows use hard time window
+constraint. Third, we optimize multiple objectives simul-
+taneously based on a population-based algorithm. Sophis-
+ticated mechanisms such as the adaptive control of local
+search, duplicated solution elimination, specialized genetic
+operators, and specialized neighborhood search strategies
+are designed to improve the performance of the proposed
+algorithm.
+III. PROBLEM DEFINITION AND FORMULATION
+In this section, we propose a multi-objective collabora-
+tive routing problem (i.e., Mo-CRPTW-mD) that aims to
+simultaneously minimize the transportation cost and maximize
+customer satisfaction. A summary of the notations is described
+in Table I.
+A. Problem Deﬁnition
+In Mo-CRPTW-mD, a truck delivers parcels assisted by
+multiple heterogeneous drones carried by the truck. Each
+TABLE I
+NOTATION DESCRIPTION
+drone can be launched from the beginning depot or the truck,
+and retrieved by the ending depot or the truck at another
+customer node. Similar to Amazon Prime Air [42], when a
+drone arrives at a customer node, the drone unloads the parcel
+autonomously and leaves immediately. After ﬁnishing a drone
+delivery, the drone can be launched again from the truck with
+a new parcel and a fresh battery. Although the drones can be
+launched multiple times, they are allowed to be launched at the
+same node exactly once. Each drone has a unique endurance
+that must be complied with during the drone delivery. Different
+from drones, the truck requires a period of service time at
+a customer node since the driver may need time to unload
+parcels manually and handle reached drones. Due to uncertain
+factors such as trafﬁc jams, it is difﬁcult to ensure that the
+truck and the drones arrive at a node simultaneously. Hence,
+the truck and drones that ﬁrst arrive at a rendezvous node
+need to wait for the others. Furthermore, each customer node
+is allowed to be served exactly once and associated with a time
+
+
+===== PAGE 4 =====
+13014
+IEEE TRANSACTIONS ON INTELLIGENT TRANSPORTATION SYSTEMS, VOL. 23, NO. 8, AUGUST 2022
+Fig. 1.
+An illustration of the customer satisfaction function and ﬂexible time
+window.
+window that should be satisﬁed by the delivery. An illustration
+of the collaborative routing problem consisting of one truck
+and two drones is shown in Fig. 2(b).
+Besides, we make some other assumptions: (i) Although
+the truck cannot launch or retrieve multiple drones at a time,
+launch and recovery activities of drones are scheduled efﬁ-
+ciently such that mid-air collisions of drones can be avoided,
+and the collaborative problem between any two drones at the
+same location is ignored. (ii) The truck has a sufﬁciently large
+capacity to carry both parcels and drones through the entire
+delivery. (iii) The time used to launch and retrieve drones,
+as well as supply batteries and parcels to drones is slight and
+covered by the service time of the truck. (iv) If a drone arrives
+at a customer node before the time window, it can land and
+wait for the time window.
+B. Mathematical Formulation
+The Mo-CRPTW-mD aims to ﬁnd collaborative routes of
+the truck and drones with the minimum transportation cost
+and the maximum overall customer satisfaction. Particularly,
+the transportation cost is related to traveled distances of drones
+and the truck, which can be formulated as
+f1 =
+
+i∈VL
+
+j∈VR
+ctδij xij
++
+
+d∈D
+
+i∈VL
+
+j∈C
+
+k∈VR,
+<d,i, j,k>∈P
+c′
+d(δ′
+dij + δ′
+djk)ydijk,
+(1)
+where ct and c′
+d are transportation costs of the truck and drone
+d ∈D per unit of distance, respectively.
+Customer satisfaction is deﬁned as the fulﬁllment of cus-
+tomer expectations and related to the arrival time of a vehicle.
+We assume that customer satisfaction μi(t) equals 1 if a
+vehicle arrives at customer node i ∈C within the appointed
+time window [ai, bi], while it is decreased linearly to 0 as the
+vehicle serves the customer too early or too late, as shown
+in Fig. 1. Hence, customer satisfaction μi (t) at node i
+delivered by a vehicle can be expressed by
+μi(t) =
+⎧
+⎪⎪⎪⎪⎪⎪⎨
+⎪⎪⎪⎪⎪⎪⎩
+t −bi
+li −bi
+,
+bi < t ≤li
+1,
+ai ≤t ≤bi
+t −ei
+ai −ei
+, ei ≤t < ai
+0,
+otherwise,
+(2)
+The overall customer satisfaction can be calculated as
+f2 =
+
+i∈VL
+
+j∈VR
+xij · μ j(t j)
++
+
+d∈D
+
+i∈VL
+
+j∈C
+
+k∈VR,
+<d,i, j,k>∈P
+ydijk · μ j(t′
+dj),
+(3)
+Inspired by the models in [5] and [4], the constraints of
+Mo-CRPTW-mD are introduced in the following.
+
+i∈VL
+xij +
+
+d∈D
+
+i∈VL
+
+k∈VR,
+<d,i, j,k>∈P
+ydijk = 1,
+∀j ∈{C : j ̸= i},
+(4)
+
+j∈VR
+x0 j = 1,
+(5)
+
+i∈VL
+xi,c+1 = 1,
+(6)
+
+j∈C
+
+k∈VR,
+<d,i, j,k>∈P
+ydijk ≤1,
+∀i ∈{VL : i ̸= j}, ∀d ∈D,
+(7)
+
+j∈VL
+
+j∈C,
+<d,i, j,k>∈P
+ydijk ≤1,
+∀k ∈{VR : k ̸= i},
+∀d ∈D,
+(8)
+
+i∈VL
+xij =
+
+k∈VR
+x jk,
+∀j ∈{C : j ̸= i, k ̸= j},
+(9)
+ui −u j ≥1 −(c + 2) pij,
+∀i, j ∈{C : j ̸= i} ,
+(10)
+ui −u j ≤−1+(c+2)
+
+1−pij
+ 
+,
+∀i, j ∈{C : j ̸= i},
+(11)
+pij + p ji = 1,
+∀i, j ∈{C : j ̸= i},
+(12)
+ui −u j + 1 ≤(c + 2)
+
+1 −xij
+ 
+,
+∀i ∈C,
+∀j ∈{VR : j ̸= i},
+(13)
+2ydijk ≤
+
+h∈VL
+xhi +
+
+l∈C
+xlk,
+∀d ∈D, ∀i, j ∈{C : i ̸= h, j ̸= i} ,
+∀k ∈{VR :< d, i, j, k >∈P, k ̸= l} ,
+(14)
+uk −ui ≥1 −(c + 2)
+⎛
+⎜⎜⎝1 −
+
+j∈C,
+<d,i, j,k>∈P
+ydijk
+⎞
+⎟⎟⎠,
+∀d ∈D, ∀i ∈C, ∀k ∈{VR : k ̸= i},
+(15)
+yd0 jk ≤
+
+h∈VL
+xhk,
+∀d ∈D, ∀i ∈C,
+∀k ∈{VR :< d, 0, j, k >∈P, k ̸= h} ,
+(16)
+r′
+dl ≥t′
+dk
+−M
+⎛
+⎜⎜⎝3−
+
+j∈C,
+<d,i, j,k>∈P
+ydijk−
+
+m∈C
+
+n∈VR,<v,l,m,n>∈P
+yvlmn−pil
+⎞
+⎟⎟⎠,
+∀i ∈{VL : i ̸= m, i ̸= n} ,
+∀k ∈{VR : k ̸= i, k ̸= m, k ̸= n} ,
+∀l ∈{C : l ̸= i,l ̸= k,l ̸= j,l ̸= m} , ∀d ∈D,
+(17)
+
+
+===== PAGE 5 =====
+LUO et al.: HMOA WITH PARETO LOCAL SEARCH FOR COLLABORATIVE TRUCK-DRONE ROUTING PROBLEMS
+13015
+r′
+di ≥t′
+di −M
+⎛
+⎜⎜⎝1 −
+
+j∈C
+
+k∈VR,
+<d,i, j,k>∈P
+ydijk
+⎞
+⎟⎟⎠,
+∀d ∈D, ∀i ∈{VL : i ̸= j},
+(18)
+t′
+dj ≥r′
+di + τ ′
+dij −M
+⎛
+⎜⎜⎝1 −
+
+k∈VR,
+<d,i, j,k>∈P
+ydijk
+⎞
+⎟⎟⎠,
+∀d ∈D, ∀j ∈C, ∀i ∈{VL : i ̸= j},
+(19)
+r′
+dj ≥t′
+dj + wdtw
+jd
+−M
+⎛
+⎜⎜⎝1 −
+
+i∈VR
+
+k∈VR,
+<d,i, j,k>∈P
+ydijk
+⎞
+⎟⎟⎠,
+∀d ∈D, ∀j ∈{C : j ̸= i},
+(20)
+t′
+dk ≥r′
+dj + τ ′
+dij −M
+⎛
+⎜⎜⎝1 −
+
+i∈VL,
+<d,i, j,k>∈P
+ydijk
+⎞
+⎟⎟⎠,
+∀d ∈D, ∀k ∈VR, ∀j ∈{C : j ̸= k},
+(21)
+t′
+dk −r′
+di ≤εd + M
+
+1 −ydijk
+ 
+,
+∀d ∈D, ∀< d, i, j, k >∈P,
+(22)
+t j ≥ri + τij −M
+
+1 −xij
+ 
+,
+∀i ∈VL, ∀j ∈{VR : j ̸= i} ,
+(23)
+r j = max
+⎛
+⎝t′
+dj, t j + wttw
+j
++ s j
+
+j∈VL
+x jk
+⎞
+⎠,
+∀k ∈{VR : k ̸= j}, ∀d ∈D,
+(24)
+rk ≥t′
+dk −M
+⎛
+⎜⎜⎝1 −
+
+j∈C
+
+i∈VR,
+<d,i, j,k>∈P
+ydijk
+⎞
+⎟⎟⎠,
+∀d ∈D, ∀k ∈{VR : k ̸= i, k ̸= j},
+(25)
+rk ≥r′
+dk −M
+⎛
+⎜⎜⎝1 −
+
+l∈C
+
+m∈VR,
+<d,k,l,m>∈P
+ydklm
+⎞
+⎟⎟⎠,
+∀d ∈D, ∀k ∈{VR : k ̸= l, k ̸= m},
+(26)
+wtd
+i
+= max{0, t′
+di −(ti + wttw
+i
++ si)},
+∀i ∈C, ∀d ∈D,
+(27)
+wdt
+id = max{0, ti −t′
+di},
+∀i ∈C, ∀d ∈D,
+(28)
+wttw
+i
+= max{0, ei −ti},
+∀i ∈C,
+(29)
+wdtw
+id
+= max 0, edi −t′
+di
+,
+∀i ∈C, ∀d ∈D,
+(30)
+xij, ydijk, pij ∈{0, 1},
+∀d ∈D,
+∀i ∈VL, ∀j, k ∈{VR : j ̸= k, j ̸= i, i ̸= k},
+(31)
+0 ≤ui ≤c + 1,
+∀i ∈V,
+(32)
+p0 j = 1,
+∀j ∈C,
+(33)
+Constraint (4) ensures that each node can only be visited
+exactly once. Constraints (5) and (6) indicate that the truck
+can depart from and return to the depot exactly once. Con-
+straints (7) and (8) state that each drone can be launched from
+and retrieved at any particular node at most once.
+Constraint (9) ensures that if a truck visits a node, then it
+must depart from the same node. Constraints (10)-(12) deter-
+mine the order of nodes visited by the truck. Constraint (13)
+is the truck subtour elimination constraint.
+Constraints (14)-(16) describe the spatial coordination of
+drones and the truck. If there exists a drone delivery <
+d, i, j, k
+>, constraint (14) ensures that the truck must
+visit nodes i and k, while constraint (15) indicates that
+the truck must travel from node i to node k. If a drone
+is launched from the depot and retrieved at node k, con-
+straint (16) requires that the truck must rendezvous the drone at
+node k.
+Constraints (17)-(22) deﬁne the drone delivery. Con-
+straint (17) prevents the sorties of the same drones from
+overlapping. Constraint (18) ensures that drone d cannot depart
+from node i to node j and node k until it has arrived at
+node i. Constraint (19) indicates that before drone d arrives at
+node j, it should depart from node i and then travel from
+node i to node j. Once the drone d arrivals at node j,
+it leaves node j immediately after completing service, which
+is described in constraint (20). When the drone d arrivals at
+k, constraint (21) requires that the drone should ﬁrst depart
+from j, and then travel from j to k. Furthermore, each
+drone delivery should be within the ﬂight endurance, which is
+described in constraint (22).
+As to the truck delivery, constraint (23) indicates that before
+the truck arrives at node j, it should leave node i and then
+travel from node i to node j. Constraint (24) identiﬁes the
+leaving time of the truck at node k.
+Constraints (25) and (26) guarantee the temporal collabo-
+ration of drones and the truck. If there exists a drone d that
+will land at node k, the truck cannot leave node k until the
+drone has been retrieved, which is described in constraint (25).
+Similarly, constraint (26) states that if there exists a drone d
+that will be launched at node k, the truck cannot leave node
+k until the drone has been launched.
+Finally, constraints (27)-(33) specify the decision variables
+deﬁnitions.
+Note that Mo-CRPTW-mD is different from the pickup and
+delivery problem with transfers (PDPT) [43]. First, in PDPT
+multiple vehicles perform pickup and delivery tasks inde-
+pendently, while in our problem two kinds of vehicles (i.e.,
+drones and the truck) perform delivery tasks collaboratively,
+indicating that the drones only can serve nodes nearby the
+truck and need back to the truck after accomplishing delivery
+tasks. Second, in PDPT a vehicle may visit a transfer node
+after another vehicle has visited the same node to transfer
+parcels, while in our problem two kinds of vehicles can
+rendezvous at the same node without speciﬁed orders.
+IV. SOLUTION APPROACH
+This section presents a hybrid multi-objective optimiza-
+tion approach (HMOA) for solving the Mo-CRPTW-mD.
+The speciﬁc features like specialized chromosome representa-
+tion, genetic operators, neighborhood structures, local search
+method, adaptive strategy, as well as general process of HMOA
+are described below.
+
+
+===== PAGE 6 =====
+13016
+IEEE TRANSACTIONS ON INTELLIGENT TRANSPORTATION SYSTEMS, VOL. 23, NO. 8, AUGUST 2022
+Algorithm 1 Framework of HMOA
+Input: All nodes C, drone number m, population size n,
+maximum iterations iter
+Output: Final Pareto front PF
+1 Initialization: prob ←0, PF ←∅,
+P1 ←AssignNodes(C, m, n)
+2 t ←1
+3 while t ≤iter do
+4
+Qt ←GeneticOperation(Pt)
+5
+Rt ←Qt ∪Pt
+6
+Rt ←RemoveDuplication(Rt, PF)
+7
+NonDominatedSort(Rt)
+8
+Pt+1 ←∅, i ←1
+9
+while |Pt+1| + |Fi| ≤n do
+10
+if i = 1 then
+11
+PF ←Update1(PF, F1)
+12
+if rand < prob then
+13
+PF ←PLS(PF)
+14
+F1 ←PE
+15
+CrowdingDistance(Fi)
+16
+Pt+1 ←Pt+1 ∪Fi
+17
+i ←i + 1
+18
+Sort(Fi, ≺n)
+19
+Pt+1 ←Pt+1 ∪Fi[1 : n −|Pt+1|]
+20
+t ←t + 1, prob ←prob + 1/iter
+A. Framework of HMOA
+The framework of HMOA is shown in Algorithm 1. HMOA
+begins by initializing an initial population P1, an external
+population PF for storing all nondominated solutions found
+so far, and a parameter prob for triggering PLS (line 1). n
+initial solutions in P1 are created based on a greedy method
+called AssignNodes detailed in Algorithm 2.
+Once the initial population
+P1
+is
+formed, all solu-
+tions
+in
+this
+population
+will
+be
+optimized
+iteratively
+(lines 3-20). In each iteration, an offspring population Qt
+will be generated based on problem-speciﬁc genetic operations
+(in Section IV-E) and be combined with paternal popula-
+tion Pt (lines 4-6). Then, we design a simple perturbation
+strategy RemoveDuplication (in Section IV-F) to remove
+duplicated solutions from the combined population Rt (line
+11). Afterward, the operations such as non-dominated sort,
+crowding distance calculation, and elite strategy introduced in
+NSGA-II [17] are adopted to select appropriate solutions from
+Rt to the next-generation population Pt+1 (lines 7-19).
+A featured place of HMOA is that the Pareto Front F1
+will be used to update the external population PF based
+on Update1 and PF would be explored adaptively based
+on PLS at each generation (lines 10-13). Then, F1 will be
+replaced by PF while PF will be preserved to the next
+generation (line 14). The purpose of these steps is to balance
+the computational cost and algorithmic efﬁciency. Speciﬁcally,
+since a major computational overhead of HMOA comes from
+PLS, we propose two strategies. The ﬁrst strategy adaptively
+determines when to trigger PLS by using prob at each
+Fig. 2.
+An illustration of a solution representation.
+generation. PLS (Algorithm 3) will be triggered if a randomly
+generated value rand ∈[0, 1] is smaller than prob. Instead of
+using a ﬁxed value, prob starts from 0 and increases at each
+generation based on the current number of generations. The
+underlying reason is that the population in initial generations
+is far from the Pareto front and more attentive to maintaining
+a diverse population, while shifts to ensuring more solutions
+converge towards the Pareto front in later generations. Another
+strategy is to select appropriate solutions to be further explored
+assisted by the external population PF, which is elaborated in
+Section IV-G. Particularly, Update1 (PF, F1) compares each
+solution pi in F1 with solutions in PF. If all the solutions
+in PF cannot dominate pi and pi is new to PF, pi will be
+added to PF. All the solutions in PF dominated by pi will
+be removed from PF.
+The iteration repeats until a predeﬁned number of genera-
+tions iter is reached and returns the ﬁnal Pareto front PF.
+B. Solution Representation
+Inspired by [32], a solution of the Mo-CRPTW-mD is
+represented by 5 parts. As Figure 2 shows, Part 1 of the
+chromosome is the truck route, which is represented by a
+permutation of node numbers visited by the truck. Two zero
+values in the truck route represent the depot. Part 2 and Part
+4 are launch and land nodes of drones, which are presented
+by cell numbers in Part 1. Part 3 includes customer nodes
+visited by drones, which are presented by customer numbers.
+Part 5 shows drone numbers.
+For example, Figure 2(b) describes Figure 2(a). The column
+(i.e., an assignment of a customer node served by a drone)
+< 1, 3, 2, 1 > of the chromosome means drone 1 is launched
+from the ﬁrst node (i.e., depot) of the truck route, then hosted
+by customer node 3, and ﬁnally retrieved at the second node
+(i.e., customer node 5) of the truck route.
+C. Initial Solution
+Initial solutions are created based on a greedy method called
+AssignNodes shown in Algorithm 2. Algorithm 2 begins
+by initializing the initial population P and a threshold value
+named lower truck limit LT L (line 1). LT L is ﬁrst deﬁned
+
+
+===== PAGE 7 =====
+LUO et al.: HMOA WITH PARETO LOCAL SEARCH FOR COLLABORATIVE TRUCK-DRONE ROUTING PROBLEMS
+13017
+Algorithm 2 AssignNodes
+Input: all nodes C, number of drones m, number of
+initial solutions n
+Output: Initial population P
+1 Initialization: Initial population P1 ←∅, lower truck
+limit LT L
+2 while |P| < n do
+3
+Pa ←∅
+4
+[Ct, Cd] ←Randomly divide all nodes in C and let
+|Ct| = LT L
+5
+Ct ←Nearest NeighborT W(Ct)
+6
+while all nodes in Cd are not assigned do
+7
+C′
+d ←Cd
+8
+for d = 1 to m do
+9
+i ←0, k ←0
+10
+while C′
+d ̸= ∅or k ̸= |Ct| do
+11
+Pd ←∅
+12
+for k = i + 1 to |Ct| do
+13
+for j = 0 to |C′
+d| do
+14
+if d′
+ij + d′
+ik ≤ε then
+15
+Pd ←Pd∪< i, j, k, d >
+16
+if Pd ̸= ∅then
+17
+< i′, j′, k′, d >←ﬁnd the cheapest pair
+from Pd
+18
+Pa ←Pa∪< i′, j′, k′, d >
+19
+Delete j from C′
+d
+20
+i ←k′
+21
+if C′
+d ̸= ∅then
+22
+Update Ct and Cd based on C′
+d
+23
+Ct ←Nearest NeighborT W(Ct)
+24
+Create a solution p from Pa and Ct
+25
+P ←P ∪p
+by [4], which indicates the minimum number of customer
+nodes in the truck route for a feasible solution. The value
+of LT L can be calculated by
+LT L =
+|C| −m
+m + 1
+
+,
+(34)
+The population size n is the maximal number of iterations
+in the while loop (lines 2-25). In each loop, a set Pa is deﬁned
+to store assignments of nodes served by drones (line 3). All the
+nodes are randomly divided into two groups Ct and Cd served
+by the truck and drones, respectively (line 4). Particularly,
+the size of Ct equals to LT L and all the nodes in Cd must
+be drone-eligible nodes.
+For the nodes in Ct, we use a variant of the well-known
+nearest-neighbor heuristic, named
+Nearest NeighborT W,
+to generate a permutation of customer nodes (line 5). Specif-
+ically, from the depot, this heuristic chooses the next node
+that is the closet node from unvisited nodes and con-
+strained by its time window, ﬁnally stops when all nodes are
+visited.
+The nodes in Cd
+are assigned via a greedy method
+(lines 6-23). In each iteration, all the possible and feasible
+assignments of nodes served by drone d are stored in Pd.
+(lines 8-15). If Pd is not empty, the cheapest assignment
+< i′, j′, k′, d > of Pd would be extracted and stored in Pa
+(lines 16-18). The cheapest assignment is determined based on
+its cost since it is very easy to be obtained via the prepared
+distance matrix. Afterward, j′ is considered as an assigned
+node and will be deleted from C′
+d, which is a copy of Cd
+(line 19). The iteration stops if all nodes in Cd have been
+assigned (i.e., C′
+d = ∅). Otherwise, Cd is updated by removing
+all nodes that remain in C′
+d, while Ct is updated by adding all
+the removed nodes to it. All the nodes in Ct are reassigned
+again based on Nearest NeighborT W (lines 21-23).
+Finally, a solution p is created based on an assignment result
+of all nodes and added to P (lines 24-25).
+D. Specialized Neighborhood Operators
+To improve the quality of solutions, we introduce six
+heuristic operators into the proposed algorithm.
+1) Truck-to-Drone Operator N1: This heuristic operator
+aims to change a customer node served by the truck to a
+customer node served by drones. Speciﬁcally, we delete the
+most expensive and drone-eligible customer node from the
+truck route and assign a cheap drone route to it. The most
+expensive customer node is identiﬁed by calculating the dis-
+tance of both two sides of each drone-eligible customer node in
+the truck route. The customer node with the longest distance
+of two sides would be treated as the most expensive node
+and be deleted from the truck route. Meanwhile, the deletion
+operation would result in changing the length of Part 1. Hence,
+values in Part 2 and Part 4 would be changed according to Part
+1. Afterward, we use the Repair heuristic (Algorithm 4) to
+ﬁnd a cheap and feasible assignment of the deleted customer
+node to a drone. If N1 does not ﬁnd a feasible solution,
+it returns the input solution unchanged.
+2) Drone-to-Truck Operator N2:
+Opposite to N1, this
+heuristic operator aims to move a customer node served by
+a drone to the truck route. Speciﬁcally, we delete the most
+expensive drone assignment and insert the deleted customer
+node into the cheapest position of the truck route. First,
+the most expensive assignment from the right side (i.e., Parts
+2-5) of the chromosome is identiﬁed in terms of the distance
+of each ﬂight. It is very convenient to calculate the distance
+since each column of Parts 2-5 can be treated as a ﬂight and
+includes the information of the launch node, customer node,
+and land node. Second, the most expensive assignment would
+be deleted from the current solution and the deleted customer
+node would be inserted into the position with the shortest
+distance of two sides of the truck route. Finally, since the
+length of Part 1 is changed, values in Part 2 and Part 4 should
+be changed accordingly.
+3) Swap N3: This heuristic operator targets Part 1 and
+Part 3 of the chromosome, by exchanging positions of two
+customer nodes served by the truck and a drone, respectively.
+Note that the two customer nodes are selected randomly and
+the customer node selected from the truck route should be
+
+
+===== PAGE 8 =====
+13018
+IEEE TRANSACTIONS ON INTELLIGENT TRANSPORTATION SYSTEMS, VOL. 23, NO. 8, AUGUST 2022
+a drone-eligible node. After changing positions, the solution
+may be infeasible. In case of infeasibility, the infeasible ﬂight
+assignments would be deleted from the current solution and
+the proposed Repair heuristic would be triggered to reassign
+deleted customer nodes. If the heuristic cannot result in a
+feasible solution, N3 returns the input solution unchanged.
+4) 2-Opt N4: The 2-opt is a well-known and efﬁcient
+heuristic operator used to solve traditional TSP [32]. This
+heuristic is performed on Part 1 to improve the truck route,
+by exchanging two of the edges in the route with two other
+edges. The customer nodes for the 2-opt heuristic operator are
+randomly selected. Meanwhile, values in Part 2 and Part 4 are
+also changed according to the permutation in Part 1 and the
+Repair heuristic is adopted to repair the potential infeasibility
+of the solution. If no feasible solution can be generated, N4
+returns the input solution unchanged.
+5) Greedy-Deletion-Reinsertion N5: This heuristic focuses
+on assignments of customer nodes served by drones. First,
+a customer node associated with the most expensive assign-
+ment in terms of the ﬂight distance is identiﬁed and deleted
+from Part 3 of the chromosome, by using the same method
+as N2. Second, the Repair heuristic is used to reassign the
+deleted customer node to a drone. If N5 cannot ﬁnd a feasible
+solution after deletion, it returns the input solution unchanged.
+6) Random-Deletion-Reinsertion N6: Similar with N5, this
+heuristic improves drone deliveries by deleting a randomly
+selected assignment and then reassign a random feasible
+assignment of the deleted customer node to a drone. If N6
+cannot ﬁnd a new and feasible assignment after deletion,
+it returns the input solution unchanged.
+We use N1, N2, and N3 to construct a multi-mode mutation
+operator (in Section IV-E). The underlying reason is that N1,
+N2, and N3 can change the customer nodes assigned to the
+truck and drones, resulting in a change of the length of Part
+1 or Part 3 of the chromosome. These heuristics are suitable
+to be occasionally called to improve the diversity of the
+population. The other heuristic operators (i.e., N4, N5, and N6)
+focus on improving a solution based on a basis that customer
+nodes assigned to the truck and drones are ﬁxed. They are
+incorporated into a Pareto local search method (Algorithm 3)
+to improve the convergence of the population.
+E. Specialized Genetic Operations
+1) Crossover: We adopt the one-point crossover in HMOA
+to allow a good position of customer nodes in a chromo-
+some to be shared with other chromosomes. There exist
+twofold beneﬁts to use this operation. First, only one cus-
+tomer node is changed in each chromosome, such that at
+most two assignments may be infeasible. It would consume
+less computational time to repair an infeasible chromosome.
+Second, by exchanging a customer node between two good
+chromosomes, the diversity of the population can be improved
+to a certain extent while keeping the main structure of
+chromosomes.
+The crossover operation is performed according to a prede-
+ﬁned crossover rate and the binary tournament selection [17].
+Once two good chromosomes are selected from the population,
+a random and common crossover position will be selected
+from Part 1 or Part 2 in two chromosomes. Then, two chro-
+mosomes exchange corresponding customer nodes. To ensure
+the feasibility of chromosomes after a crossover, the Repair
+heuristic is used to reassign infeasible customer nodes. If the
+Repair heuristic cannot address the infeasibility of a chromo-
+some, this operator returns the chromosome unchanged.
+2) Multi-Mode Mutation: To further improve the diversity
+of the population, we use a multi-mode mutation introduced
+by [15]. This operator consists of three above-mentioned
+heuristics (i.e., N1, N2, N3) and only one heuristic is chosen
+in each mutation operation. The mutation rate is considerably
+small since it would destructive to the structure of a chromo-
+some. Meanwhile, we assign three operators (i.e., N1, N2, and
+N3) the same rates to be triggered.
+Furthermore, we propose a simple rule to ensure the quality
+of a solution. If the length of Part 1 is smaller than LT L, either
+N2 or N3 is considered. If the length of Part 3 is smaller than
+the number of drones, either N1 or N3 is chosen to perform
+the mutation. Otherwise, one of N1, N2, and N3 is selected.
+F. Remove Duplication
+Due to the complex constraints of the problem, as well
+as the nature of HMOA that the proposed heuristics often
+return solutions unchanged during the optimization, a num-
+ber of identical solutions may be preserved in the popula-
+tion after genetic operations. We develop a strategy named
+RemoveDuplication based on the multi-mode mutation oper-
+ator and a restart strategy to eliminate duplications. Concretely,
+in the combined population Rt, either the multi-mode mutation
+is triggered to perturb a solution randomly selected from the
+external population PF or AssignNode is triggered to create
+a new initial solution once a duplicated solution is found.
+We deﬁne a parameter named restart rate α to determine
+the weights of the two operations. If a generated random
+probability is smaller than α, the multi-mode mutation is
+triggered. Otherwise, AssignNode is called.
+This combination is reasonable. Although the multi-mode
+mutation can search a larger neighborhood space of a non-
+dominated solution, it may still ﬁnd a duplicated solution,
+thereby trap the population in the local optimum. On the
+other hand, AssignNode can create a new initial solution
+that is beneﬁcial to the diversity, but the new solution is
+far from the Pareto front and thus wastes previous search
+efforts. Furthermore, compared with using a larger mutation
+rate that may change an already good solution, just changing
+a duplicated solution can keep robust of the algorithm while
+further improving the diversity of the population.
+G. Pareto Local Search
+The Pareto local search (PLS) works with a set of
+non-dominated solutions and aims to ﬁnd new solutions
+for updating this set iteratively [44]. The conventional PLS
+explores all non-dominated solutions at each iteration, which is
+not efﬁcient. Particularly, a non-dominated solution at the early
+generations may be dominated by a new solution at the next
+generation. Therefore, inspired by [44], we improve the
+
+
+===== PAGE 9 =====
+LUO et al.: HMOA WITH PARETO LOCAL SEARCH FOR COLLABORATIVE TRUCK-DRONE ROUTING PROBLEMS
+13019
+Algorithm 3 PLS
+Input: Pareto Front PF, kmax, heuristics H
+Output: Improved Pareto front PF
+1 Initialization: k ←1, PF′ ←∅, PL ←∅
+2 PF′ ←Find solutions new to PF
+3 while k < kmax and PL ̸= ∅do
+4
+PL ←∅
+5
+for each p in PF′ do
+6
+for each Ni in H do
+7
+p′ ←Ni(p)
+8
+if p ≺p′ then
+9
+PF ←Update2(p′, PF)
+10
+if p′ has been added to PF then
+11
+PL ←Update2(p′, PL)
+12
+PF′ ←PL
+13
+k ←k + 1
+14 Label all the solutions in PF
+conventional PLS to avoid unbearable computational efforts,
+by providing more computational efforts to the solutions with
+a high chance to ﬁnd new non-dominated solutions.
+As can be seen in Algorithm 3, kmax determines the max-
+imum iterations of PLS and H = {N4, N5, N6}. The external
+population PF can help with identifying the solutions that
+are new to the current Pareto front at each generation. New
+solutions may be further improved, thereby only new solutions
+to PF would be explored in the local search.
+In each iteration of the local search, PL is initialized to
+be empty at the beginning and used to reset PF′ at the end
+(lines 4 and 12). For each neighbor p′ of every solution p
+in PF′, an Update2 operator is triggered to update PF
+if p′ dominates p (lines 9-13). In Update2(p′, PF), p′ is
+compared with each solution in PF, it would be added to
+PF if no solution in PF can dominate it. Meanwhile, all the
+solutions in PF dominated by p′ will be deleted. If p′ has
+been added to PF, line 15 would trigger Update2(p′, PL)
+to update PL. The two i f conditions in lines 8 and 10 only
+allow very promising solutions to update PF and PL, such
+that the computational time can be reduced signiﬁcantly.
+Finally, the iteration repeats until PF′ is empty or the
+maximum number of iterations is reached. In this paper, we set
+kmax = 5 to reduce computational time.
+H. Repair and Improve Assignment
+To address the infeasibility of chromosomes, we propose a
+heuristic operator called Repair to reassign customer nodes
+while improving the solution in terms of cost, as Algorithm 4
+shows.
+In Algorithm 4, the infeasible solution p is ﬁrstly updated by
+removing all assignments associated with infeasible customer
+nodes in Cin (line 2). Then, all possible and feasible assign-
+ments for current solution p′ are identiﬁed and stored in P
+(lines 3-8). The feasibility of an assignment indicates that this
+assignment is strictly constrained by ﬂight endurance and not
+in conﬂict with other assignments in the current solution p′.
+If every infeasible customer node in Cun can be associated
+with at least one assignment in P, the infeasible customer
+nodes are assigned iteratively. Otherwise, this heuristic returns
+solution p unchanged (lines 9-20).
+In each iteration, every promising assignment of all infeasi-
+ble customer nodes is selected from P based on two criteria.
+First, the customer node j that has the least potential assign-
+ments are preferred (line 11). Second, the cheapest assignment
+< i, j, k, d > in terms of cost is preferred (line 12). All the
+promising assignments are stored in Pin to update solution p′
+(line 13). Afterward, P is updated by removing all assignments
+that are associated with j and in conﬂict with < i, j, k, d >
+(line 14). Finally, if all the nodes in Cin are arranged, this
+heuristic output a new solution p′ by adding all assignments
+in Pin to p′. Otherwise, the unchanged solution p is treated
+as output.
+Algorithm 4 Repair
+Input: infeasible customer nodes Cin, truck nodes Ct,
+drone number m, solution p
+Output: Solution p′
+1 Initialization: Possible pairs set P ←∅, pairs set for
+updating solution Pin ←∅
+2 p′ ←update p by Cin
+3 for d = 1 to m do
+4
+for i = 1 to |Ct| −1 do
+5
+for k = i + 1 to |Ct| do
+6
+for each j in Cin do
+7
+if < i, j, k, d > is feasible and not in
+conﬂict with assignments in p then
+8
+P ←P∪< i, j, k, d >
+9 if Every node in Cun has at least one assignment in P
+then
+10
+while P ̸= ∅do
+11
+Pj ←ﬁnd assignments with the least chances for
+assigning j from P
+12
+< i, j, k, d >←ﬁnd the cheapest assignments
+from Pj
+13
+Pin ←Pin∪< i, j, k, d >
+14
+P ←update P by < i, j, k, d >
+15
+if all nodes in Cin are assigned then
+16
+p′ ←update p′ by Pin
+17
+else
+18
+p′ ←p
+19 else
+20
+p′ ←p
+V. COMPUTATIONAL EXPERIMENTS
+To assess the performance of the proposed HMOA, we apply
+it to a set of benchmark instances and a real-world case.
+All the algorithms are coded in Python and all computations
+are performed on a 64-bit Windows OS with Intel Core(TM)
+i7-10700, 2.9 GHz, and 32 GB RAM.
+
+
+===== PAGE 10 =====
+13020
+IEEE TRANSACTIONS ON INTELLIGENT TRANSPORTATION SYSTEMS, VOL. 23, NO. 8, AUGUST 2022
+A. Performance Metrics
+Since the true PF of each instance is unknown, we use two
+performance metrics, i.e., hypervolume (HV) and coverage
+(C-metric) [44] for measuring performance. HV represents the
+volume among a solution set and a reference point. We select
+the reference point by the worst objective values from all
+solutions obtained by all algorithms in all runs. Meanwhile,
+two objectives are normalized to eliminate the efﬁciency
+of different scales. The larger the HV of the solution set,
+the better its diversity and convergence efﬁciency. C-metric
+can be denoted as C(A, B), which represents the percentage
+of the solutions in B that are dominated by any solution in A.
+If C(A,B) equals 1, it means each solution in B is dominated
+by or equal to at least one solution in A. On the other hand,
+if C(A, B) equals 0, it indicates that no solutions in B can be
+dominated by any solution in A. A is better than B if C(A, B)
+is larger than C(B, A). It should be noted that C(A, B) is not
+necessarily equal to 1 −C(B, A).
+B. Experiments on Benchmark Instances
+1) Benchmark Instances: Since there are no available
+benchmark instances for the proposed Mo-CRPTW-mD,
+we extend the well-known TSPTW instances proposed by
+Dumas et al. [45]. These instances are categorized accord-
+ing to the number of customer nodes and the length of
+time windows, from which we extract 20 instances with the
+number of customer nodes varies from 20 to 80. Each size
+of instances consists of 5 datasets. The information of the
+original Dumas’ instances used are customer index, coordi-
+nates, ready time ai, and due time bi of the time window
+associated with customer node i. Since original instances
+require that all customer nodes must be served between the
+ready time and the due time, we generate a ﬂexible time
+window [ei,li] for each node i to obtain instances relevant
+to the Mo-CRPTW-mD model, where ei = ai −wbl
+i(bi −ai)
+and li = ai +wbu
+i (bi −ai). Particularly, wbl
+i and wbu
+i are two
+fractions used to set the maximum allowed violations of time
+windows.
+Furthermore, for all instances, the distance between two
+nodes traveled by truck is calculated with the Manhattan
+distance, while the distance traveled by a drone is calculated
+with the Euclidean distance. As the settings in [5], the speeds
+of drones and the truck are identical, while the cost of the
+truck is set to 25 times the cost of a drone. We assume that
+85% of customer nodes in each instance are drone-eligible.
+To set the ﬂight range of drones, we use the same method
+introduced in [32] and assume that 35% of feasible ﬂights can
+be satisﬁed by drones in each instance.
+2) Experiment Settings: Since there is no multi-objective
+optimization algorithm that can be directly used to address
+Mo-CRPTW-mD, we modify two competitors to compare
+with HMOA, including MOEAD [46] and MOMAD [44].
+MOEAD is a well-known decomposition-based algorithm,
+which is modiﬁed by incorporating all the proposed genetic
+operators into it. MOMAD is a state-of-the-art multi-objective
+combinatorial optimization algorithm that can be considered
+as a hybridization of the MOEAD framework and PLS. Six
+neighborhood strategies proposed in this study and a conven-
+tional PLS are appropriately incorporated into MOMAD. Both
+MOEAD and MOMAD decompose the multi-objective prob-
+lem based on Tchebycheff Approach. Additionally, we con-
+sider the HMOA without PLS (HMOA-noLS) as the third
+competitor. Note that since our algorithm is inspired by
+the framework of NSGA-II, HMOA-noLS can also be con-
+sidered as an improved and problem-speciﬁc version of
+NSGA-II.
+The parameter conﬁgurations are shown as follows. For
+each instance, the ﬂexible time window-related parameters
+wbl
+i = wbu
+i = 0.2 and the truck takes 3 drones. The number
+of populations in each algorithm is set to 200. The crossover
+rate and mutation rate are set to 0.8 and 0.3, respectively. The
+restart rate α = 0.3.
+3) Experiment Results: Four algorithms are performed on
+the above-described 20 instances 15 times independently. The
+average and standard deviation of HV, as well as the average
+CPU time, are represented in Table I. As Dumas’ instances,
+the name of each instance indicates the number of nodes
+and the width of times windows (e.g., n20w80 means the
+number of customer nodes is 20 and the width of time
+windows is 80). For each instance, the best results are in
+boldface. Wilcoxon rank-sum tests with signiﬁcance level
+0.05 are used for the signiﬁcance tests. The symbols +, ≈, and
+−represent that the corresponding algorithm is signiﬁcantly
+better than, similar to, and signiﬁcantly worse than HMOA,
+respectively.
+In Table II, the results show that the Pareto fronts gener-
+ated by HMOA are signiﬁcantly better than the other three
+algorithms. Speciﬁcally, HMOA generates signiﬁcantly higher
+HV values than HMOA-noLS, MOEAD, and MOMAD on
+all the instances except instances n20w80_001, n4080w_004,
+n60w80_002, and n80w80_001, on which HMOA gener-
+ates higher average HV values but signiﬁcantly similar
+with HMOA-noLS. The results can be explained in multi-
+fold. First, although MOEAD and MOMAD are excellent
+algorithm frameworks, they cannot address our proposed
+problem very well, which calls for further problem-speciﬁc
+modiﬁcations to improve their performances. Second, com-
+pared with MOEAD, HMOA-noLS uses the same genetic
+operations but signiﬁcantly outperforms MOEAD since the
+proposed duplication elimination strategy in HMOA-noLS
+can further improve the diversity of the population. Third,
+since the PLS has a strong local search capability, HMOA
+can achieve better performance than HMOA-noLS on most
+instances.
+Moreover,
+two
+hybrid
+algorithms
+(i.e.,
+HMOA
+and
+MOMAD) take more computational time than the other two
+algorithms (i.e., HMOA-noLS and MOEAD) without local
+search. MOMAD takes the most computational time since it
+adopts two local searches at each generation. Compared with
+HMOA-noLS, the extra time required by HMOA to perform
+PLS is negligible for smaller instances, while it shows a
+trade-off between the execution time and the quality of the
+fronts for larger instances.
+The average C-metric values of all the 15 × 15 compar-
+isons on each instance are shown in Table III. The larger
+
+
+===== PAGE 11 =====
+LUO et al.: HMOA WITH PARETO LOCAL SEARCH FOR COLLABORATIVE TRUCK-DRONE ROUTING PROBLEMS
+13021
+TABLE II
+HYPERVOLUME AND COMPUTATIONAL TIME OBTAINED FROM BENCHMARK INSTANCES
+TABLE III
+COMPARISON OF HMOA WITH OTHER ALGORITHMS ON COVERAGE
+values between C(HMOA,-) and C(-,HMOA) are in boldface.
+We can ﬁnd that C(HMOA,-) values are signiﬁcantly larger
+than C(-,HMOA) values on all the instances compared with
+the three competitors. It further indicates that our proposed
+HMOA outperforms the other three comparison algorithms.
+Particularly, most C(HMOA,-) values compared with MOEAD
+and MOMAD are very close to 1, which indicates that most
+solutions obtained by these algorithms are dominated by
+at least one solution of HMOA. On the other hand, most
+C(-,HMOA) values compare with MOEAD and MOMAD
+approximate 0, which means very few solutions of HMOA
+are dominated by those found by MOEAD and MOMAD.
+Although all the C(HMOA, HMOA-noLS) values are still
+larger than C(HMOA-noLS, HMOA) values on all instances,
+on few instances (e.g., n20w80_03 and n20w80_04) less than
+a half solutions can be dominated by at least one solution
+of HMOA, which indicates that the coverages of their Pareto
+fronts are similar.
+To visually compare the performance of the four algo-
+rithms, instances n20w80_01, n40w80_01, n60w80_01, and
+n80w80_01 are selected to illustrate the output solutions of
+the four algorithms in terms of objective space, respectively.
+The best solutions produced by each algorithm over 15 runs
+are compared in Figure 3. For better observation, the values
+of customer satisfaction are converted to negative. The results
+show that HMOA has better overall convergence and diver-
+sity than other algorithms, which conﬁrms the advantage of
+HMOA.
+
+
+===== PAGE 12 =====
+13022
+IEEE TRANSACTIONS ON INTELLIGENT TRANSPORTATION SYSTEMS, VOL. 23, NO. 8, AUGUST 2022
+Fig. 3. Comparison of the Pareto fronts obtained by HMOA, HMOA-noLS, MOEAD, and MOMAD on n20w80_01, n40w80_01, n60w80_01, and n80w80_01.
+Fig. 4.
+Geographical positions of 30 customer nodes.
+C. Experiments on Real-World Case
+1) Case Description: We develop a real-world case that
+comes from Changsha, China, to validate the Mo-CRPTW-mD
+model and analyze the sensitivity of HMOA. As Figure 4
+shows, the problem consists of 30 customer nodes in the
+eastern urban area of Changsha, which are served from a
+depot near the Changsha Train Station. The distance traveled
+by truck between each pair of nodes is obtained via Gaode
+Map API, while the distance traveled by drones between
+each pair of nodes is calculated according to Euclidean norm.
+As in [4], [11], the speed of the truck and drones are both
+set to 50 kilometers per hour, and the ﬂight limitation of each
+drone is set to 8 kilometers. The transportation costs of using
+a truck and a drone are 3 Yuan and 0.2 Yuan per kilometer,
+respectively. The time windows of all the customer nodes are
+randomly distributed between 8:00 am and 11:00 am. The
+length of each time window is uniformly distributed within
+[20, 40] minutes. The service time of a customer node served
+by the truck is uniformly distributed within [10, 15] minutes.
+2) Trade-off Analysis Between Cost and Customer Satisfac-
+tion: Since there exists a set of solutions on the Pareto front,
+the decision-maker needs to select an appropriate scheme
+according to actual situations. In most situations, the best-
+compromise solution is desirable, which can be obtained based
+on its distance to the ideal point [47]. Speciﬁcally, every
+objective value is normalized with respect to the ideal point.
+Then, a Euclidean norm is applied to evaluate the distance to
+Fig. 5.
+Normalized representation with isolines for the Pareto front.
+Fig. 6.
+The average values of the best-compromise solutions by varying the
+number of drones.
+the ideal point. The solution with the shortest distance is the
+best-compromise solution.
+In this section, we select the best Pareto front in terms
+of average HV values from 15 runs to analyze the trade-off
+between cost and customer satisfaction. In each run the number
+of drones |D| = 2 and wbl
+i = wbu
+i = 0.5 (i ∈{1, 2, . . . , c}).
+The other parameters are the same as the experiments on
+benchmark instances. The normalized representation with
+isolines for the Pareto front is shown in Figure 5. As we
+can see, the best-compromise solution, the best-customer
+
+
+===== PAGE 13 =====
+LUO et al.: HMOA WITH PARETO LOCAL SEARCH FOR COLLABORATIVE TRUCK-DRONE ROUTING PROBLEMS
+13023
+TABLE IV
+COMPARISON OF SOLUTIONS CONSTRAINED BY FLEXIBLE TIME WINDOWS AND HARD TIME WINDOWS
+Fig. 7.
+Impact analysis of algorithm parameters.
+satisfaction solution, and the best-cost solution are marked
+by
+red, orange, and
+green
+stars,
+respectively. Accord-
+ingly, the transportation cost and customer satisfaction of
+the best-compromise solution are 58.217 Yuan and 9.415.
+The transportation cost and customer satisfaction of the
+best-customer satisfaction solution are 69.768 Yuan and
+11.823. For the best-cost solution, the transportation cost and
+customer satisfaction of the best-customer satisfaction solution
+are 55.256 Yuan and 2.
+To further analyze the trade-off between transportation cost
+and customer satisfaction, we identify the best-compromise
+solution, the best-customer satisfaction solution, and the
+best-cost solution for all 15 runs. The average values are rep-
+resented in the left of Table IV. It indicates that if a company
+uses the best-compromise solution, the transportation cost will
+decrease 15.473% compared with the best-customer satis-
+faction solution, and the customer satisfaction will increase
+175.886% compared with the best-cost solution.
+3) Comparison Between Flexible Time Window and Hard
+Time Window: We compare the Mo-CRPTW-mD model with
+wbl
+i = wbu
+i = 0 and with wbl
+i = wbu
+i = 0.5 (i ∈1, 2, . . . , c)
+to analyze the impact of ﬂexible time windows. The results are
+presented in Table IV. The results show that if the ﬂexible time
+windows are adopted, both the transportation cost (except the
+average cost value of best-cost solutions) and overall customer
+satisfaction are increased. Nevertheless, the increased degree
+of transportation cost is negligible, while the increased over-
+all customer satisfaction is huge. Speciﬁcally, if a company
+adopts the best-compromise solution, the transportation cost
+is increased by 1.426% while the customer satisfaction is
+increased by 40.537% after considering ﬂexible time windows.
+The results can be explained that ﬂexible time windows can
+provide more chances for vehicles to serve more customers,
+such that demands of more customer nodes can be satisﬁed.
+Based on the above observations, the decision makers can
+choose to improve the overall customer satisfaction at the
+expense of few transportation cost by considering the ﬂexible
+time windows.
+4) Impact Analysis of the Number of Drones: The above
+experiments on the real-world case consider 2 drones.
+To investigate the impact of the number of drones on the
+results, we perform HMOA on the real-world case by varying
+the number of drones from 1 to 5. The average values of
+the best-compromise solutions over 15 runs are presented
+in Figure 6. It indicates that as the increase of the number
+of drones, lower transportation costs and higher customer
+satisfaction can be achieved.
+5) Impact Analysis of Algorithm Parameters:
+HMOA
+involves three major parameters: crossover rate, mutation rate,
+and restart rate α. We conduct experiments by varying the
+three parameters from 0 to 1 respectively over 15 runs on
+the real-world case to study the sensitivity of HMOA. The
+experimental results are displayed in Figure 7. It can be found
+that both of the three parameters affect the computational
+time of HMOA signiﬁcantly. The higher the crossover rate,
+the less computational time. On the contrary, the higher the
+mutation rate and the restart rate, the more computational time.
+Nevertheless, the HV values do not change linearly with the
+increase of the crossover rate and the restart rate. The higher
+mutation rate may obtain higher HV values, but there exists a
+trade-off between the computational time and the performance
+of HMOA.
+VI. CONCLUSION
+In this paper, we consider a multi-objective collaborative
+routing problem with a truck and multiple drones, as well as
+ﬂexible time windows constraints, in which customer nodes
+are able to be served by either a truck or a drone with a certain
+tolerance. The transportation cost and customer satisfaction are
+optimized simultaneously by developing a population-based
+hybrid multi-objective optimization approach (HMOA). The
+proposed algorithm involves a problem-speciﬁc solution rep-
+resentation, genetic operations, as well as an improved PLS
+
+
+===== PAGE 14 =====
+13024
+IEEE TRANSACTIONS ON INTELLIGENT TRANSPORTATION SYSTEMS, VOL. 23, NO. 8, AUGUST 2022
+incorporated with problem-speciﬁc heuristic neighborhood
+strategies. Meanwhile, an adaptive strategy is implemented to
+balance the diversity and convergence of the population.
+Extensive experimental studies are carried out to evaluate
+the proposed model and algorithm. The experimental results
+on benchmark instances show the superiority of the proposed
+algorithm compared with competitors, and the experimental
+studies on a real-world case tested the sensitivity of HMOA.
+Meanwhile, we provide a method to ﬁnd the best-compromise
+solutions for assisting decision makings of logistic companies.
+The experimental results also veriﬁed that by adopting the
+ﬂexible time windows, a logistic company can achieve higher
+overall customer satisfaction while paying for few external
+transportation costs in terms of the best-compromise solutions.
+Besides, the higher the number of drones, the fewer transporta-
+tion costs and the higher customer satisfaction can be obtained.
+Our proposed problem can be easily extended to a
+multi-truck and multi-drone version. We can assume a scenario
+where customers are divided into several groups and each
+group is served by a truck collaborated with a ﬂeet of drones.
+A clustering method based on node distances such as k-means
+would be promising to obtain the customer groups. Further-
+more, the effects of parcel weights on the travel time and
+energy consumption of drones are assumed to be negligible in
+this study. To get close to reality, we would like to incorporate
+the effects in problems in future studies.
+REFERENCES
+[1] S. H. Chung, B. Sah, and J. Lee, “Optimization for drone and drone-
+truck combined operations: A review of the state of the art and future
+directions,” Comput. Oper. Res., vol. 123, Nov. 2020, Art. no. 105004.
+[2] C. C. Murray and A. G. Chu, “The ﬂying sidekick traveling salesman
+problem: Optimization of drone-assisted parcel delivery,” Transp. Res. C,
+Emerg. Technol., vol. 54, pp. 86–109, May 2015.
+[3] N. Agatz, P. Bouman, and M. Schmidt, “Optimization approaches for
+the traveling salesman problem with drone,” Transp. Sci., vol. 52, no. 4,
+pp. 965–981, 2018.
+[4] C. C. Murray and R. Raj, “The multiple ﬂying sidekicks traveling
+salesman problem: Parcel delivery with multiple drones,” Transp. Res.
+C, Emerg. Technol., vol. 110, pp. 368–398, Jan. 2020.
+[5] Q. M. Ha, Y. Deville, Q. D. Pham, and M. H. Hà, “On the min-
+cost traveling salesman problem with drone,” Transp. Res. C, Emerg.
+Technol., vol. 86, pp. 597–621, Jan. 2018.
+[6] S. Poikonen, X. Wang, and B. Golden, “The vehicle routing problem
+with drones: Extended models and connections,” Networks, vol. 70,
+no. 1, pp. 34–43, 2017.
+[7] D. Sacramento, D. Pisinger, and S. Ropke, “An adaptive large neighbor-
+hood search metaheuristic for the vehicle routing problem with drones,”
+Transp. Res. C, Emerg. Technol., vol. 102, pp. 289–315, May 2019.
+[8] Z. Wang and J.-B. Sheu, “Vehicle routing problem with drones,” Transp.
+Res. B, Methodol., vol. 122, pp. 350–364, Apr. 2019.
+[9] P.
+Kitjacharoenchai,
+M.
+Ventresca,
+M.
+Moshref-Javadi,
+S.
+Lee,
+J. M. A. Tanchoco, and P. A. Brunese, “Multiple traveling salesman
+problem with drones: Mathematical model and heuristic approach,”
+Comput. Ind. Eng., vol. 129, pp. 14–30, Mar. 2019.
+[10] D. Tas, O. Jabali, and T. Van Woensel, “A vehicle routing problem
+with ﬂexible time windows,” Comput. Oper. Res., vol. 52, pp. 39–54,
+Dec. 2014.
+[11] H. Zhang, Q. Zhang, L. Ma, Z. Zhang, and Y. Liu, “A hybrid ant colony
+optimization algorithm for a multi-objective vehicle routing problem
+with ﬂexible time windows,” Inf. Sci., vol. 490, pp. 166–190, Jul. 2019.
+[12] T. Lust and J. Teghem, “Two-phase Pareto local search for the biob-
+jective traveling salesman problem,” J. Heuristics, vol. 16, no. 3,
+pp. 475–510, 2010.
+[13] G. Wu, R. Mallipeddi, and P. N. Suganthan, “Ensemble strategies
+for population-based optimization algorithms—A survey,” Swarm Evol.
+Comput., vol. 44, pp. 695–711, Feb. 2019.
+[14] H. Chen, G. Wu, W. Pedrycz, P. N. Suganthan, L. Xing, and X. Zhu,
+“An adaptive resource allocation strategy for objective space partition-
+based multiobjective optimization,” IEEE Trans. Syst., Man, Cybern.,
+Syst., vol. 51, no. 3, pp. 1507–1522, Mar. 2021.
+[15] K. C. Tan, Y. H. Chew, and L. H. Lee, “A hybrid multi-objective
+evolutionary algorithm for solving truck and trailer vehicle routing
+problems,” Eur. J. Oper. Res., vol. 172, no. 3, pp. 855–885, 2006.
+[16] K. C. Tan, Y. H. Chew, and L. Lee, “A hybrid multiobjective evolutionary
+algorithm for solving vehicle routing problem with time windows,”
+Comput. Optim. Appl., vol. 34, no. 1, pp. 115–151, 2006.
+[17] K. Deb, S. Agrawal, A. Pratap, and T. Meyarivan, “A fast elitist non-
+dominated sorting genetic algorithm for multi-objective optimization:
+NSGA-II,” in Proc. Int. Conf. Parallel Problem Solving Nature. Berlin,
+Germany: Springer, 2000, pp. 849–858.
+[18] M. Dell’Amico, R. Montemanni, and S. Novellani, “Drone-assisted
+deliveries: New formulations for the ﬂying sidekick traveling salesman
+problem,” Optim. Lett., vol. 15, no. 5, pp. 1617–1648, Jul. 2021.
+[19] Q. M. Ha, Y. Deville, Q. D. Pham, and M. H. Hà, “A hybrid genetic
+algorithm for the traveling salesman problem with drone,” J. Heuristics,
+vol. 26, no. 2, pp. 219–247, Apr. 2020.
+[20] M. Marinelli, L. Caggiani, M. Ottomanelli, and M. Dell’Orco, “En route
+truck–drone parcel delivery for optimal vehicle routing strategies,” IET
+Intell. Transp. Syst., vol. 12, no. 4, pp. 253–261, May 2018.
+[21] S. Poikonen, B. L. Golden, and E. Wasil, “A branch-and-bound approach
+to the traveling salesman problem with a drone,” Informs J. Comput.,
+vol. 31, no. 2, pp. 335–346, 2019.
+[22] Z. Luo, Z. Liu, and J. Shi, “A two-echelon cooperated routing problem
+for a ground vehicle and its carried unmanned aerial vehicle,” Sensors,
+vol. 17, no. 5, p. 1144, May 2017.
+[23] Y. Liu, Z. Liu, J. Shi, G. Wu, and W. Pedrycz, “Two-echelon routing
+problem for parcel delivery by cooperated truck and drone,” IEEE
+Trans. Syst., Man, Cybern., Syst., early access, Feb. 10, 2020, doi:
+10.1109/TSMC.2020.2968839.
+[24] M. Boccia, A. Masone, A. Sforza, and C. Sterle, “A column-and-row
+generation approach for the ﬂying sidekick travelling salesman problem,”
+Transp. Res. C, Emerg. Technol., vol. 124, Mar. 2021, Art. no. 102913.
+[25] J. C. D. Freitas and P. H. V. Penna, “A variable neighborhood search
+for ﬂying sidekick traveling salesman problem,” Int. Trans. Oper. Res.,
+vol. 27, no. 1, pp. 267–290, Apr. 2019.
+[26] K. Wang, B. Yuan, M. Zhao, and Y. Lu, “Cooperative route planning
+for the drone and truck in delivery services: A bi-objective optimisation
+approach,” J. Oper. Res. Soc., vol. 71, no. 10, pp. 1657–1674, 2020.
+[27] E. E. Yurek and H. C. Ozmutlu, “A decomposition-based iterative
+optimization algorithm for traveling salesman problem with drone,”
+Transp. Res. C, Emerg. Technol., vol. 91, pp. 249–262, Jun. 2018.
+[28] I. Dayarian, M. Savelsbergh, and J.-P. Clarke, “Same-day delivery with
+drone resupply,” Transp. Sci., vol. 54, no. 1, pp. 229–249, 2020.
+[29] M. Dell’Amico, R. Montemanni, and S. Novellani, “Matheuristic algo-
+rithms for the parallel drone scheduling traveling salesman problem,”
+Ann. Oper. Res., vol. 289, no. 2, pp. 211–226, Jun. 2020.
+[30] S. Kim and I. Moon, “Traveling salesman problem with a drone station,”
+IEEE Trans. Syst., Man, Cybern., Syst., vol. 49, no. 1, pp. 42–52,
+May 2019.
+[31] R. G. Mbiadou Saleu, L. Deroussi, D. Feillet, N. Grangeon, and
+A. Quilliot, “An iterative two-step heuristic for the parallel drone
+scheduling traveling salesman problem,” Networks, vol. 72, no. 4,
+pp. 459–474, Dec. 2018.
+[32] M. Moshref-Javadi, A. Hemmati, and M. Winkenbach, “A truck and
+drones model for last-mile delivery: A mathematical model and heuristic
+approach,” Appl. Math. Model., vol. 80, pp. 290–318, Apr. 2020.
+[33] M. Moshref-Javadi, S. Lee, and M. Winkenbach, “Design and evaluation
+of a multi-trip delivery model with truck and drones,” Transp. Res. E,
+Logistics Transp. Rev., vol. 136, Apr. 2020, Art. no. 101887.
+[34] P. A. Tu, N. T. Dat, and P. Q. Dung, “Traveling salesman problem
+with multiple drones,” in Proc. 9th Int. Symp. Inf. Commun. Technol.
+New York, NY, USA: Association for Computing Machinery, 2018,
+pp. 46–53.
+[35] Y. S. Chang and H. J. Lee, “Optimal delivery routing with wider drone-
+delivery areas along a shorter truck-route,” Expert Syst. Appl., vol. 104,
+pp. 307–317, Aug. 2018.
+[36] S. M. Ferrandez, T. Harbison, T. Weber, R. Sturges, and R. Rich, “Opti-
+mization of a truck-drone in tandem delivery network using k-means
+and genetic algorithm,” J. Ind. Eng. Manage., vol. 9, no. 2, pp. 374–388,
+2016.
+[37] H. Li, H. Wang, J. Chen, and M. Bai, “Two-echelon vehicle routing
+problem with time windows and mobile satellites,” Transp. Res. B,
+Methodol., vol. 138, pp. 179–201, Aug. 2020.
+
+
+===== PAGE 15 =====
+LUO et al.: HMOA WITH PARETO LOCAL SEARCH FOR COLLABORATIVE TRUCK-DRONE ROUTING PROBLEMS
+13025
+[38] A. M. Ham, “Integrated scheduling of m-truck, m-drone, and m-depot
+constrained by time-window, drop-pickup, and m-visit using constraint
+programming,” Transp. Res. C, Emerg. Technol., vol. 91, pp. 1–14,
+Jun. 2018.
+[39] M. W. Ulmer and B. W. Thomas, “Same-day delivery with hetero-
+geneous ﬂeets of drones and vehicles,” Networks, vol. 72, no. 4,
+pp. 475–505, Dec. 2018.
+[40] D. N. Das, R. Sewani, J. Wang, and M. K. Tiwari, “Synchronized truck
+and drone routing in package delivery logistics,” IEEE Trans. Intell.
+Transp. Syst., vol. 22, no. 9, pp. 5772–5782, Sep. 2021.
+[41] M. Salama and S. Srinivas, “Joint optimization of customer location
+clustering and drone-based routing for last-mile deliveries,” Transp. Res.
+C, Emerg. Technol., vol. 114, pp. 620–642, May 2020.
+[42] S. M. Shavarani, M. G. Nejad, F. Rismanchian, and G. Izbirak, “Appli-
+cation of hierarchical facility location problem for optimization of a
+drone delivery system: A case study of Amazon prime air in the city
+of San Francisco,” Int. J. Adv. Manuf. Technol., vol. 95, nos. 9–12,
+pp. 3141–3153, Apr. 2018.
+[43] C. E. Cortés, M. Matamala, and C. Contardo, “The pickup and delivery
+problem with transfers: Formulation and a branch-and-cut solution
+method,” Eur. J. Oper. Res., vol. 200, no. 3, pp. 711–724, Feb. 2010.
+[44] L. Ke, Q. Zhang, and R. Battiti, “Hybridization of decomposition and
+local search for multiobjective optimization,” IEEE Trans. Cybern.,
+vol. 44, no. 10, pp. 1808–1820, Oct. 2014.
+[45] Y. Dumas, J. Desrosiers, E. Gelinas, and M. M. Solomon, “An optimal
+algorithm for the traveling salesman problem with time windows,” Oper.
+Res., vol. 43, no. 2, pp. 367–371, 1995.
+[46] Q. Zhang and H. Li, “MOEA/D: A multiobjective evolutionary algorithm
+based on decomposition,” IEEE Trans. Evol. Comput., vol. 11, no. 6,
+pp. 712–731, Dec. 2007.
+[47] X. Blasco, J. M. Herrero, J. Sanchis, and M. Martínez, “A new graphical
+visualization of n-dimensional Pareto front for decision-making in
+multiobjective optimization,” Inf. Sci., vol. 178, no. 20, pp. 3908–3924,
+Oct. 2008.
+Qizhang Luo received the B.S. degree and the
+M.S. degree in trafﬁc and transportation engineering
+from Central South University, Changsha, China,
+in 2015 and 2018, respectively, where he is currently
+pursuing the Ph.D. degree with the School of Trafﬁc
+and Transportation Engineering. He is also a Visiting
+Student with the National University of Singapore.
+His current research interests include computational
+intelligence and scheduling, with a focus on their
+applications in trafﬁc and transportation ﬁelds.
+Guohua Wu (Member, IEEE) received the B.S.
+degree in information systems and the Ph.D. degree
+in operations research from the National University
+of Defense Technology, China, in 2008 and 2014,
+respectively.
+From 2012 to 2014, he was a Visiting Ph.D.
+Student with the University of Alberta, Edmonton,
+Canada. He is currently a Professor with the School
+of Trafﬁc and Transportation Engineering, Central
+South University, Changsha, China. He has authored
+more than 80 refereed articles, including those published in IEEE TRANSAC-
+TIONS ON CYBERNETICS, IEEE TRANSACTIONS ON SYSTEMS, MAN, AND
+CYBERNETICS—PART A: SYSTEMS AND HUMANS, and IEEE TRANSAC-
+TIONS ON INTELLIGENT TRANSPORTATION SYSTEMS. His current research
+interests include planning and scheduling, computational intelligence, and
+machine learning. He also serves as an Associate Editor for Swarm and
+Evolutionary Computation journal, an Editorial Board Member for the
+International Journal of Bio-Inspired Computation, and a Guest Editor
+for Information Sciences and Memetic Computing. He is also a Regular
+Reviewer of more than 20 journals, including IEEE TRANSACTIONS ON
+EVOLUTIONARY COMPUTATION, IEEE TRANSACTIONS ON CYBERNETICS,
+IEEE TRANSACTIONS ON SYSTEMS, MAN, AND CYBERNETICS—PART A:
+SYSTEMS AND HUMANS and Information Sciences.
+Bin
+Ji
+received
+the
+Ph.D.
+degree
+from
+the
+School of Hydropower and Information Engineering,
+Huazhong University of Science and Technology,
+China, in 2018. He is currently a Professor with the
+School of Trafﬁc and Transportation Engineering,
+Central South University, China. His research inter-
+est includes optimization and its application with
+transportation.
+Ling Wang received the B.Sc. degree in automation
+and the Ph.D. degree in control theory and con-
+trol engineering from Tsinghua University, Beijing,
+China, in 1995 and 1999, respectively.
+Since 1999, he has been with the Department of
+Automation, Tsinghua University, where he became
+a Full Professor in 2008. He has authored ﬁve
+academic books and more than 300 refereed articles.
+His current research interests include intelligent opti-
+mization and production scheduling.
+Prof. Wang was a recipient of the National Natural
+Science Fund for Distinguished Young Scholars of China, the National Natural
+Science Award (Second Place) in 2014, the Science and Technology Award
+of Beijing City in 2008, and the Natural Science Award (First Place in 2003,
+and Second Place in 2007) nominated by the Ministry of Education of China.
+He is currently the Editor-in-Chief of the International Journal of Automation
+and Control, and an Associate Editor of the IEEE TRANSACTIONS ON
+EVOLUTIONARY COMPUTATION, Swarm and Evolutionary Computation, and
+Expert Systems With Applications.
+Ponnuthurai
+Nagaratnam
+Suganthan
+(Fellow,
+IEEE) received the B.A. and M.A. degrees from
+the University of Cambridge, Cambridge, U.K., and
+the Ph.D. degree from Nanyang Technological Uni-
+versity, Singapore. He was a recipient of the IEEE
+TRANSACTIONS ON EVOLUTIONARY COMPUTA-
+TION Outstanding Paper Award in 2012 and the
+Highly Cited Researcher Award by the Thomson
+Reuters in computer science in 2015. He is currently
+an Associate Editor of the IEEE TRANSACTIONS ON
+EVOLUTIONARY COMPUTATION, the IEEE TRANS-
+ACTIONS ON CYBERNETICS, Information Sciences, and Pattern Recognition,
+and the Founding Co-Editor-in-Chief of Swarm and Evolutionary Computa-
+tion journal.
+
+
