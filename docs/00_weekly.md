@@ -142,11 +142,11 @@
 | n=40 | 0.534 | 0.756 | 0.867 | 0.777 | 0.866 |
 | n=60 | 0.596 | 0.860 | 0.872 | 0.840 | 0.784 |
 | n=80 | 0.601 | 0.800 | 0.793 | 0.867 | 0.809 |
-
+![iter_C(H,N)](../src/results/week3/line_chart.png)
 | Metric | iter=500 | iter=1000 | iter=1500 | iter=2000 |
 |--------|----------|-----------|-----------|-----------|
 | Beat Paper | 18/20 | 18/20 | 18/20 | 18/20 |
-
+![iter_average C(H,N)](../src/results/week3/iter_average_line.png)
 ## 3. Computation Time
 
 | Size | Paper HMOA | iter=500 | iter=1000 | iter=1500 | iter=2000 |
