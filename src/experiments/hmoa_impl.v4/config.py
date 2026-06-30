@@ -1,0 +1,168 @@
+"""
+Configuration parameters for HMOA algorithm.
+All parameters are set according to the paper:
+"Hybrid Multi-Objective Optimization Approach With Pareto Local Search
+for Collaborative Truck-Drone Routing Problems Considering Flexible Time Windows"
+IEEE TRANSACTIONS ON INTELLIGENT TRANSPORTATION SYSTEMS, VOL. 23, NO. 8, AUGUST 2022
+"""
+
+import numpy as np
+
+# =============================================================================
+# Problem Parameters (Section V-B: Benchmark Instances)
+# =============================================================================
+
+# Distance calculation
+TRUCK_DISTANCE_TYPE = 'manhattan'  # Manhattan distance for truck travel
+DRONE_DISTANCE_TYPE = 'euclidean'  # Euclidean distance for drone travel
+
+# Speed settings (identical for truck and drones)
+TRUCK_SPEED = 1.0       # Unit distance per unit time (identical to drone speed)
+DRONE_SPEED = 1.0       # Unit distance per unit time (identical to truck speed)
+
+# Cost settings
+TRUCK_COST_PER_UNIT = 25.0   # 25 times the cost of a drone (Section V-B)
+DRONE_COST_PER_UNIT = 1.0     # Base cost per unit distance for drone
+
+# Drone-eligible nodes
+DRONE_ELIGIBLE_RATIO = 0.85   # 85% of customer nodes are drone-eligible
+
+# Drone endurance
+DRONE_ENDURANCE_RATIO = 0.35  # 35% of feasible flights can be satisfied by drones
+
+# Flexible time window parameters (Section V-B)
+# ei = ai - wbl_i * (bi - ai)
+# li = ai + wbu_i * (bi - ai)  [Note: paper says li = ai + wbu_i * (bi - ai) but
+# based on Fig.1, li = bi + wbu_i * (bi - ai). Using Fig.1 interpretation.]
+# Actually, re-reading Section V-B: "ei = ai - wbl_i * (bi - ai) and
+# li = ai + wbu_i * (bi - ai)" — this is from the paper text literally.
+# But Fig.1 shows li > bi. Let's use the paper's exact formula.
+WBL = 0.2   # Lower bound fraction for flexible time window (paper: 0.2)
+WBU = 0.2   # Upper bound fraction for flexible time window (paper: 0.2)
+
+# Service time
+TRUCK_SERVICE_TIME_RANGE = (10, 15)  # Uniform distribution (real-world case)
+DRONE_SERVICE_TIME = 0.0             # Drone service time is negligible
+
+# =============================================================================
+# HMOA Algorithm Parameters (Section IV)
+# =============================================================================
+
+# Population size (Section V-B: n is tested; default based on paper)
+POPULATION_SIZE = 200
+
+# Maximum iterations (generations)
+MAX_ITERATIONS = 2000  # Will be overridden per-experiment
+
+# Crossover rate
+CROSSOVER_RATE = 0.8
+
+# Mutation rate (probability of applying mutation to an offspring)
+MUTATION_RATE = 0.3
+
+# Multi-mode mutation probabilities (N1, N2, N3 are equally likely)
+# Within the multi-mode mutation, each of N1, N2, N3 has probability 1/3
+N1_PROB = 1.0 / 3.0  # Truck-to-Drone
+N2_PROB = 1.0 / 3.0  # Drone-to-Truck
+N3_PROB = 1.0 / 3.0  # Swap
+
+# =============================================================================
+# Pareto Local Search Parameters (Algorithm 3, Section IV-G)
+# =============================================================================
+
+# Maximum iterations for PLS (Section IV-G: kmax = 5)
+KMAX = 5
+
+# PLS uses heuristics H = {N4, N5, N6}
+PLS_HEURISTICS = ['N4', 'N5', 'N6']
+
+# Restart rate for RemoveDuplication (Section IV-F)
+RESTART_RATE = 0.3  # α: weight between multi-mode mutation and AssignNode
+
+# =============================================================================
+# Adaptive PLS Trigger (Section IV-G)
+# =============================================================================
+
+# prob starts at 0 and increases by 1/iter each generation
+# PLS is triggered if rand < prob
+INITIAL_PROB = 0.0
+PROB_INCREMENT = 1.0 / MAX_ITERATIONS
+
+# =============================================================================
+# Lower Truck Limit (Equation 34)
+# =============================================================================
+# LTL = ceil((|C| - m) / (m + 1))
+# Computed dynamically based on instance size and drone count
+
+# =============================================================================
+# PF Size Management
+# =============================================================================
+
+# Maximum size of external Pareto Front (to prevent unbounded growth)
+# The paper doesn't specify a limit, but for computational efficiency,
+# we prune PF using crowding distance when it exceeds this size.
+MAX_PF_SIZE = 500  # Paper Fig.3 shows ~50-200 points per PF; 500 is sufficient
+
+# =============================================================================
+# Computational Budget
+# =============================================================================
+
+# Maximum runtime per instance (seconds), for time-limited experiments
+MAX_RUNTIME = 3600
+
+# Number of independent runs for statistical comparison
+NUM_RUNS = 15
+
+# =============================================================================
+# Random Seed
+# =============================================================================
+RANDOM_SEED = 42
+
+# =============================================================================
+# Instance Generation Parameters (Section V-B)
+# =============================================================================
+
+# Benchmark instance sizes (number of customers)
+BENCHMARK_SIZES = [20, 40, 60, 80]
+
+# Number of instances per size
+INSTANCES_PER_SIZE = 5
+
+# Time window width categories (w = width as fraction of horizon)
+TIME_WINDOW_WIDTHS = [20, 40, 60, 80]
+
+# Default number of drones for benchmarks
+DEFAULT_DRONE_COUNT = 3  # Paper: truck takes 3 drones
+
+# Coordinate range for random instance generation
+COORDINATE_RANGE = (0, 100)
+
+# Time window horizon
+TIME_HORIZON = 480  # 8 hours in minutes (used for scaling)
+
+# =============================================================================
+# Real-World Case Parameters (Section V-C: Changsha City)
+# =============================================================================
+
+REAL_WORLD_PARAMS = {
+    'num_customers': 30,
+    'num_drones': 2,
+    'truck_speed': 50.0,       # km/h
+    'drone_speed': 50.0,       # km/h
+    'drone_endurance': 8.0,    # km
+    'truck_cost': 3.0,         # Yuan/km
+    'drone_cost': 0.2,         # Yuan/km
+    'time_window_start': 480,  # 8:00 am in minutes
+    'time_window_end': 660,    # 11:00 am in minutes
+    'time_window_width_range': (20, 40),  # minutes
+    'service_time_range': (10, 15),       # minutes
+}
+
+# =============================================================================
+# Output and Visualization
+# =============================================================================
+
+OUTPUT_DIR = 'output'
+FIGURE_DPI = 150
+PLOT_PARETO_FRONTS = True
+SAVE_RESULTS_CSV = True

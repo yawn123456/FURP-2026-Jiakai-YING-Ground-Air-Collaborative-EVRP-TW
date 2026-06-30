@@ -1,0 +1,165 @@
+#!/usr/bin/env python
+"""Reliable parallel experiment launcher for HMOA on Dumas w80 instances."""
+import sys, os, time, json, traceback
+from datetime import datetime
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+import config; config.MAX_ITERATIONS = 2000
+
+# Fix 1: Unbuffered output
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
+
+# Fix 2: Limit threads BEFORE any numpy import
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+
+WORKER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'worker.py')
+
+INSTANCES = [
+    ('n20w80_001', 'dumas_instances/n20w80.001.txt'),
+    ('n20w80_002', 'dumas_instances/n20w80.002.txt'),
+    ('n20w80_003', 'dumas_instances/n20w80.003.txt'),
+    ('n20w80_004', 'dumas_instances/n20w80.004.txt'),
+    ('n20w80_005', 'dumas_instances/n20w80.005.txt'),
+    ('n40w80_001', 'dumas_instances/n40w80.001.txt'),
+    ('n40w80_002', 'dumas_instances/n40w80.002.txt'),
+    ('n40w80_003', 'dumas_instances/n40w80.003.txt'),
+    ('n40w80_004', 'dumas_instances/n40w80.004.txt'),
+    ('n40w80_005', 'dumas_instances/n40w80.005.txt'),
+    ('n60w80_001', 'dumas_instances/n60w80.001.txt'),
+    ('n60w80_002', 'dumas_instances/n60w80.002.txt'),
+    ('n60w80_003', 'dumas_instances/n60w80.003.txt'),
+    ('n60w80_004', 'dumas_instances/n60w80.004.txt'),
+    ('n60w80_005', 'dumas_instances/n60w80.005.txt'),
+    ('n80w80_001', 'dumas_instances/n80w80.001.txt'),
+    ('n80w80_002', 'dumas_instances/n80w80.002.txt'),
+    ('n80w80_003', 'dumas_instances/n80w80.003.txt'),
+    ('n80w80_004', 'dumas_instances/n80w80.004.txt'),
+    ('n80w80_005', 'dumas_instances/n80w80.005.txt'),
+]
+
+OUTDIR = 'output/parallel_w80'
+MAX_WORKERS = 5  # 12 parallel workers
+
+def run_worker(instance_name, fpath):
+    """Launch worker.py as a subprocess with real-time output streaming."""
+    import subprocess
+    cmd = [sys.executable, '-u', WORKER_SCRIPT, instance_name, fpath, str(config.MAX_ITERATIONS), OUTDIR]
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               text=True, env={**os.environ, 'PYTHONUTF8': '1'})
+        output_lines = []
+        for line in proc.stdout:
+            line = line.rstrip()
+            output_lines.append(line)
+            print(f'  [{instance_name}] {line}', flush=True)
+        proc.wait(timeout=7200)
+        success = proc.returncode == 0
+        return instance_name, success, '\n'.join(output_lines[-5:])
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return instance_name, False, "TIMEOUT (2h)"
+    except Exception as e:
+        return instance_name, False, str(e)
+
+if __name__ == '__main__':
+    os.makedirs(OUTDIR, exist_ok=True)
+    os.makedirs(f'{OUTDIR}/pfs', exist_ok=True)
+
+    # Skip already-completed instances
+    todo = []
+    for name, fpath in INSTANCES:
+        if os.path.exists(f'{OUTDIR}/{name}.json'):
+            print(f'SKIP {name} (already done)')
+        else:
+            todo.append((name, fpath))
+
+    if not todo:
+        print('All instances already completed!')
+        sys.exit(0)
+
+    n_total = len(todo)
+    print('=' * 70)
+    print(f'  HMOA EXPERIMENT — pop={config.POPULATION_SIZE}, iter={config.MAX_ITERATIONS}, '
+          f'kmax={config.KMAX}, drones={config.DEFAULT_DRONE_COUNT}, wbl={config.WBL}')
+    print(f'  Workers: {MAX_WORKERS}  |  Pending: {n_total}')
+    print(f'  Started: {datetime.now():%Y-%m-%d %H:%M:%S}')
+    print('=' * 70)
+
+    t_start = time.time()
+    done, fail = 0, 0
+
+    with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {executor.submit(run_worker, name, path): name
+                   for name, path in todo}
+
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                name, success, output = future.result()
+                elapsed = time.time() - t_start
+                if success:
+                    done += 1
+                    # Load result for summary
+                    try:
+                        with open(f'{OUTDIR}/{name}.json') as f:
+                            r = json.load(f)
+                        print(f'[{datetime.now():%H:%M:%S}] DONE {name} ({done}/{n_total}): '
+                              f'C(H,N)={r["c_hn_mean"]:.4f}, C(N,H)={r["c_nh_mean"]:.4f}, '
+                              f'T(H)={r["time_hmoa_mean"]:.0f}s, T(N)={r["time_nols_mean"]:.0f}s, '
+                              f'elapsed={elapsed:.0f}s')
+                    except:
+                        print(f'[{datetime.now():%H:%M:%S}] DONE {name} ({done}/{n_total}): '
+                              f'elapsed={elapsed:.0f}s (result file parse failed)')
+                else:
+                    fail += 1
+                    print(f'[{datetime.now():%H:%M:%S}] FAIL {name}: {output[:200]}')
+            except Exception as e:
+                fail += 1
+                print(f'[{datetime.now():%H:%M:%S}] ERROR {name}: {e}')
+
+    # Merge and print final summary
+    t_total = time.time() - t_start
+    print(f'\n{"="*90}')
+    print(f'  FINAL RESULTS')
+    print(f'  Completed: {done}  Failed: {fail}  Time: {t_total:.0f}s ({t_total/3600:.1f}h)')
+    print(f'{"="*90}')
+
+    results = {}
+    for name, _ in INSTANCES:
+        path = f'{OUTDIR}/{name}.json'
+        if os.path.exists(path):
+            with open(path) as f:
+                results[name] = json.load(f)
+
+    if results:
+        # Header
+        print(f'{"Instance":<14} {"C(H,N)":<14} {"C(N,H)":<14} {"W":<6} {"HV(H)":<12} {"HV(N)":<12} {"T(H)":<8} {"T(N)":<8}')
+        print('-' * 90)
+        for name in sorted(results.keys()):
+            r = results[name]
+            w = 'HMOA' if r['c_hn_mean'] > r['c_nh_mean'] else ('noLS' if r['c_nh_mean'] > r['c_hn_mean'] else 'TIE')
+            print(f'{name:<14} {r["c_hn_mean"]:.4f}±{r["c_hn_std"]:.3f} '
+                  f'{r["c_nh_mean"]:.4f}±{r["c_nh_std"]:.3f} {w:<6} '
+                  f'{r["hv_hmoa_mean"]:.1f}±{r["hv_hmoa_std"]:.0f}  '
+                  f'{r["hv_nols_mean"]:.1f}±{r["hv_nols_std"]:.0f}  '
+                  f'{r["time_hmoa_mean"]:.0f}s     {r["time_nols_mean"]:.0f}s')
+
+        # By size
+        for n in [20, 40, 60, 80]:
+            sub = {k: v for k, v in results.items() if v['n'] == n}
+            if sub:
+                hn = sum(v['c_hn_mean'] for v in sub.values()) / len(sub)
+                nh = sum(v['c_nh_mean'] for v in sub.values()) / len(sub)
+                w = 'HMOA' if hn > nh else ('noLS' if nh > hn else 'TIE')
+                print(f'  n={n}: C(H,N)={hn:.4f}  C(N,H)={nh:.4f}  → {w} wins')
+
+        with open(f'{OUTDIR}/results.json', 'w') as f:
+            json.dump(results, f, indent=2)
+
+    print(f'\nCompleted: {datetime.now():%Y-%m-%d %H:%M:%S}')
