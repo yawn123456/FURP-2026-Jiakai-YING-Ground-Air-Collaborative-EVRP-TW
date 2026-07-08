@@ -41,7 +41,6 @@
 | n=60 | **0.860** | 0.749 | 0.841 |
 | n=80 | 0.800 | 0.790 | **0.841** |
 
-![improvement](.../src/results/week4/improvement.png)
 
 ## 胜场统计
 
