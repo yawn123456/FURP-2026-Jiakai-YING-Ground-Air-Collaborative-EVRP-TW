@@ -41,6 +41,8 @@
 | n=60 | **0.860** | 0.749 | 0.841 |
 | n=80 | 0.800 | 0.790 | **0.841** |
 
+![改进实验 C-metric 对比](.../src/week4/improvement_comparison.jpeg)
+
 ## 胜场统计
 
 | 改进 | 胜率 | 效果 |
@@ -57,8 +59,6 @@
 | **最佳配置** | **固定 0.3 变异率 + 纯距离 Repair + iter=500** | 推荐 |
 
 ## 可视化对比
-
-![改进实验 C-metric 对比](improvement_comparison.jpeg)
 
 ## 数据目录
 
