@@ -41,7 +41,7 @@
 | n=60 | **0.860** | 0.749 | 0.841 |
 | n=80 | 0.800 | 0.790 | **0.841** |
 
-![改进实验 C-metric 对比](.../src/week4/improvement_comparison.jpeg)
+![改进实验 C-metric 对比](.../src/result/week4/improvement_comparison.jpeg)
 
 ## 胜场统计
 
