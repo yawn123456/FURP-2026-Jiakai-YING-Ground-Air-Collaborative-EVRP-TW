@@ -1,0 +1,14 @@
+{
+  "name": "n20w60_002",
+  "n": 20,
+  "hv_hmoa_mean": 1.8659619420037425,
+  "hv_hmoa_std": 0.8727869447129237,
+  "hv_nols_mean": NaN,
+  "hv_nols_std": NaN,
+  "c_hn_mean": NaN,
+  "c_hn_std": NaN,
+  "c_nh_mean": NaN,
+  "c_nh_std": NaN,
+  "time_hmoa_mean": 93.80795804659526,
+  "time_nols_mean": NaN
+}

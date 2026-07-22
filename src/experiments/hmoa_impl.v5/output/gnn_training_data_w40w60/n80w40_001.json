@@ -1,0 +1,14 @@
+{
+  "name": "n80w40_001",
+  "n": 80,
+  "hv_hmoa_mean": 4.9515868146528454,
+  "hv_hmoa_std": 5.149981990677261,
+  "hv_nols_mean": NaN,
+  "hv_nols_std": NaN,
+  "c_hn_mean": NaN,
+  "c_hn_std": NaN,
+  "c_nh_mean": NaN,
+  "c_nh_std": NaN,
+  "time_hmoa_mean": 182.5735786596934,
+  "time_nols_mean": NaN
+}

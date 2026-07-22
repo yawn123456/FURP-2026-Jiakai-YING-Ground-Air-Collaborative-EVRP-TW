@@ -1,0 +1,29 @@
+{
+  "n20": {
+    "scale": "n20",
+    "best_epoch": 150,
+    "best_val_loss": 0.3016146366630304,
+    "val_loss": 0.3016146366630304,
+    "val_acc": 0.82328216374269,
+    "val_precision": 0.8482400056207405,
+    "val_recall": 0.8463668547793474,
+    "val_f1": 0.8473023949469252,
+    "total_time_seconds": 157.8302617073059,
+    "avg_epoch_time": 1.0507321246465047,
+    "total_params": 36354,
+    "config": {
+      "batch_size": 256,
+      "max_epochs": 150,
+      "patience": 20,
+      "hidden_dim": 128,
+      "num_heads": 4,
+      "dropout": 0.2,
+      "learning_rate": 0.001,
+      "weight_decay": 1e-05,
+      "num_workers": 0,
+      "pin_memory": true,
+      "preload": true,
+      "seed": 42
+    }
+  }
+}
