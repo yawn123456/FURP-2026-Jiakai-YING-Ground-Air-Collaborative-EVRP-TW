@@ -1,0 +1,96 @@
+# HMOA - Hybrid Multi-Objective Optimization for Truck-Drone Routing
+
+## 项目结构
+
+```
+hmoa_impl.v4/
+│
+├── core/                          # 算法核心代码
+│   ├── __init__.py
+│   ├── algorithm.py               # HMOA主算法 (Algorithm 1) + PLS (Algorithm 3)
+│   ├── config.py                  # 所有参数配置 (论文参数)
+│   ├── metrics.py                 # 性能指标 (HV, C-metric)
+│   ├── operators.py               # 6个邻域算子 N1-N6 + 遗传操作 + AssignNodes + Repair
+│   ├── operators_pls.py           # PLS专用算子 (N4, N5, N6 严格按论文)
+│   ├── problem.py                 # 问题模型 (Mo-CRPTW-mD)
+│   ├── utils.py                   # Dumas实例加载 + 可视化 + 实例生成
+│   └── worker.py                  # 单实例worker (被experiments调用)
+│
+├── experiments/                   # 实验脚本
+│   ├── experiment.py              # iter=2000 (续跑)
+│   ├── experiment_iter1000.py     # iter=1000
+│   ├── experiment_iter1500.py     # iter=1500
+│   ├── experiment_uss.py          # USS改进 (混合可行/不可行选择)
+│   ├── experiment_dynamic.py      # 动态变异率测试
+│   └── experiment_hybrid.py       # 混合成本Repair测试
+│
+├── dumas_instances/               # Dumas et al. (1995) TSPTW 实例
+│   ├── n20w80.001.txt ~ .005.txt  # n=20, w=80
+│   ├── n40w80.001.txt ~ .005.txt  # n=40, w=80
+│   ├── n60w80.001.txt ~ .005.txt  # n=60, w=80
+│   └── n80w80.001.txt ~ .005.txt  # n=80, w=80
+│
+├── output/                        # 实验结果 (独立目录)
+│   ├── parallel_w80_iter500/      # Baseline (iter=500)
+│   ├── parallel_w80_iter1000/     # iter=1000
+│   ├── parallel_w80_iter1500/     # iter=1500
+│   ├── parallel_w80/              # iter=2000
+│   ├── parallel_w80_dynamic_mut/  # 动态变异率实验
+│   ├── parallel_w80_hybrid_cost/  # 混合成本实验
+│   └── parallel_w80_uss/          # USS实验
+│
+├── main.py                        # CLI入口
+├── run_benchmark.py               # 旧版benchmark脚本
+├── experiment_report.md           # 改进实验对比报告
+├── improvements_report.md         # 改进来源说明
+└── README.md                      # 本文件
+```
+
+## 论文信息
+
+- **题目**: Hybrid Multi-Objective Optimization Approach With Pareto Local Search for Collaborative Truck-Drone Routing Problems Considering Flexible Time Windows
+- **作者**: Qizhang Luo, Guohua Wu, Bin Ji, Ling Wang, Ponnuthurai Nagaratnam Suganthan
+- **期刊**: IEEE Trans. on Intelligent Transportation Systems, 2022
+
+## 参数设置
+
+| 参数 | 值 |
+|------|-----|
+| 种群大小 | 200 |
+| 迭代次数 | 500 (推荐) |
+| 交叉率 | 0.8 |
+| 变异率 | 0.3 (固定) |
+| PLS kmax | 5 |
+| 无人机数 | 3 |
+| wbl/wbu | 0.2 |
+| 重启率 | 0.3 |
+| 运行次数 | 15/实例 |
+
+## 运行实验
+
+```bash
+# 激活环境
+conda activate vrp_env312
+
+# 运行 USS 改进实验 (推荐)
+python experiments/experiment_uss.py
+
+# 运行 Baseline (iter=500)
+python experiments/experiment.py
+
+# 快速测试
+python -c "import sys; sys.path.insert(0,'core'); from utils import load_dumas_instance; from algorithm import hmoa; inst=load_dumas_instance('dumas_instances/n20w80.001.txt',num_drones=3); pf,_,_=hmoa(inst,50,50,42,verbose=True)"
+```
+
+## 实验结果摘要
+
+| 实验 | C(H,N) | vs Baseline | 建议 |
+|------|--------|-------------|------|
+| Baseline (iter=500) | 0.813 | — | 推荐 |
+| USS ζ=0.2 | **0.829** | **+0.016** | **推荐** |
+| 动态变异率 | 0.795 | -0.018 | 不推荐 |
+| 混合成本Repair | 0.812 | -0.001 | 不推荐 |
+
+## 改进来源
+
+USS (混合可行/不可行解集更新) 改进来自: *Multi-objective optimization of truck-drone cooperative routing problem based on customer classification and fuzzy time windows*

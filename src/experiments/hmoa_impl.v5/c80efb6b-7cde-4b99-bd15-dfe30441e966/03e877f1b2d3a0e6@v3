@@ -1,0 +1,847 @@
+"""
+Operators for HMOA algorithm.
+
+Contains:
+- Algorithm 2: AssignNodes (greedy initialization)
+- Algorithm 4: Repair (heuristic for reassigning infeasible nodes)
+- N1: Truck-to-Drone operator
+- N2: Drone-to-Truck operator
+- N3: Swap operator
+- N4: 2-Opt operator (for truck route)
+- N5: Greedy-Deletion-Reinsertion operator (for drone deliveries)
+- N6: Random-Deletion-Reinsertion operator (for drone deliveries)
+- Crossover: One-point crossover
+- Mutation: Multi-mode mutation (N1, N2, N3)
+
+All operators strictly follow the paper's Section IV-D and IV-E.
+"""
+
+import numpy as np
+import copy
+import random
+from typing import List, Tuple, Optional, Set, Dict
+from problem import (
+    CustomerNode, DroneDelivery, Solution, ProblemInstance
+)
+import config
+
+
+# ==============================================================================
+# Algorithm 2: AssignNodes (Section IV-C)
+# ==============================================================================
+
+def assign_nodes(instance: ProblemInstance, random_state: np.random.RandomState) -> Solution:
+    """
+    Greedy-based initialization method (Algorithm 2).
+
+    Steps:
+    1. Randomly divide nodes into truck nodes Ct and drone nodes Cd
+       where |Ct| = LTL initially
+    2. Generate truck route using NearestNeighborTW
+    3. Greedily assign drone nodes to drone deliveries
+    4. If some drone nodes cannot be assigned, move them to truck route
+    """
+    C = set(range(1, instance.num_customers + 1))
+    m = instance.num_drones
+    LTL = instance.ltl
+
+    # Step 1: Randomly divide nodes (line 4)
+    # Ensure Ct gets at least LTL nodes
+    eligible_nodes = [nid for nid in C if instance.nodes[nid].is_drone_eligible]
+    non_eligible = [nid for nid in C if not instance.nodes[nid].is_drone_eligible]
+
+    # All non-eligible nodes must be served by truck
+    Ct_list = list(non_eligible)
+    remaining = [nid for nid in C if nid not in Ct_list]
+
+    # Randomly assign nodes to reach LTL for truck
+    random_state.shuffle(remaining)
+    needed_truck = max(0, LTL - len(Ct_list))
+    Ct_list.extend(remaining[:needed_truck])
+    Cd_list = [nid for nid in C if nid not in Ct_list]
+
+    Ct = set(Ct_list)
+    Cd = set(Cd_list)
+
+    # Step 2: NearestNeighborTW for truck route (line 5)
+    truck_route = nearest_neighbor_tw(instance, list(Ct), random_state)
+
+    # Steps 3-23: Greedy drone assignment
+    drone_deliveries = []
+    Cd_prime = set(Cd)  # C'd: unassigned drone nodes
+
+    # Build truck full route for reference
+    for d in range(1, m + 1):
+        if not Cd_prime:
+            break
+
+        # Find all possible assignments for this drone
+        i_pos = 0  # Start from depot
+        while Cd_prime and i_pos <= len(truck_route):
+            Pd = []  # Possible assignments for current drone
+            truck_full = [0] + truck_route + [0]
+
+            for k_pos in range(i_pos + 1, len(truck_full)):
+                i_node = truck_full[i_pos]
+                k_node = truck_full[k_pos]
+
+                for j_node in list(Cd_prime):
+                    # Check endurance constraint: d_ij + d_jk <= epsilon
+                    flight_dist = (instance.drone_distance(i_node, j_node) +
+                                  instance.drone_distance(j_node, k_node))
+                    if flight_dist <= instance.drone_endurance + 1e-10:
+                        # Check temporal feasibility
+                        # Drone arrives at j, checks time window
+                        launch_time = 0  # Will be computed in timeline
+                        Pd.append((i_node, j_node, k_node, flight_dist))
+
+            if Pd:
+                # Find cheapest assignment (line 17)
+                Pd.sort(key=lambda x: x[3])  # Sort by flight distance
+                i_best, j_best, k_best, _ = Pd[0]
+
+                drone_deliveries.append(DroneDelivery(
+                    drone_id=d,
+                    launch_node=i_best,
+                    customer=j_best,
+                    retrieve_node=k_best
+                ))
+                Cd_prime.remove(j_best)
+
+                # Find position of k_best in truck route to continue (line 20)
+                if k_best > 0:
+                    try:
+                        i_pos = truck_route.index(k_best)
+                    except ValueError:
+                        i_pos = len(truck_route)
+                else:
+                    i_pos = len(truck_route)
+            else:
+                break
+
+        if not Cd_prime:
+            break
+
+    # If some drone nodes remain unassigned, move them to truck route (lines 21-23)
+    if Cd_prime:
+        new_truck_nodes = list(Ct) + list(Cd_prime)
+        truck_route = nearest_neighbor_tw(instance, new_truck_nodes, random_state)
+
+        # Remove drone deliveries that use nodes now in truck route
+        drone_deliveries = [dd for dd in drone_deliveries
+                           if dd.customer not in set(new_truck_nodes)]
+
+    # Create solution (line 24)
+    solution = Solution(
+        truck_route=truck_route,
+        drone_deliveries=drone_deliveries
+    )
+
+    return solution
+
+
+def nearest_neighbor_tw(instance: ProblemInstance,
+                        nodes_to_visit: List[int],
+                        random_state: np.random.RandomState) -> List[int]:
+    """
+    Nearest Neighbor heuristic with Time Window consideration.
+
+    From the depot, repeatedly selects the closest unvisited node
+    that satisfies the time window constraint (Section IV-C).
+    """
+    if not nodes_to_visit:
+        return []
+
+    unvisited = set(nodes_to_visit)
+    route = []
+    current_node = 0  # Start from depot
+    current_time = 0.0
+
+    while unvisited:
+        # Find the nearest unvisited node
+        best_node = None
+        best_cost = float('inf')
+
+        # Try nodes in random order (but prefer nearest)
+        candidate_order = list(unvisited)
+        random_state.shuffle(candidate_order)
+
+        # Among candidates, find nearest that is feasible
+        candidates_with_dist = []
+        for nid in candidate_order:
+            dist = instance.truck_distance(current_node, nid)
+            travel_time = instance.truck_travel_time(current_node, nid)
+            arrival = current_time + travel_time
+            cust = instance.nodes[nid]
+
+            # Check if arrival is within flexible time window
+            if arrival <= cust.latest_time + 1e-10:
+                candidates_with_dist.append((nid, dist, arrival))
+
+        if candidates_with_dist:
+            # Choose the nearest feasible node
+            candidates_with_dist.sort(key=lambda x: x[1])
+            best_node = candidates_with_dist[0][0]
+        else:
+            # No feasible node found, pick the nearest anyway
+            candidates_with_dist_all = [(nid, instance.truck_distance(current_node, nid))
+                                         for nid in unvisited]
+            candidates_with_dist_all.sort(key=lambda x: x[1])
+            best_node = candidates_with_dist_all[0][0]
+
+        if best_node is None:
+            break
+
+        route.append(best_node)
+        unvisited.remove(best_node)
+
+        # Update time
+        travel_time = instance.truck_travel_time(current_node, best_node)
+        current_time += travel_time
+        cust = instance.nodes[best_node]
+
+        # Wait if arrived too early
+        if current_time < cust.earliest_time:
+            current_time = cust.earliest_time
+
+        # Add service time
+        current_time += cust.service_time
+        current_node = best_node
+
+    return route
+
+
+# ==============================================================================
+# Algorithm 4: Repair and Improve Assignment (Section IV-H)
+# ==============================================================================
+
+def repair(instance: ProblemInstance, solution: Solution,
+           random_state: np.random.RandomState) -> Solution:
+    """
+    Repair heuristic for infeasible chromosomes (Algorithm 4).
+
+    Steps:
+    1. Identify infeasible customer nodes Cin
+    2. Remove all assignments associated with infeasible nodes
+    3. Find all possible feasible assignments for unassigned nodes
+    4. Assign iteratively: prefer node with least options, then cheapest assignment
+    """
+    p = solution.copy()
+    timeline, _ = instance.compute_timeline(p)
+
+    # Identify infeasible nodes
+    Cin = set()
+
+    # Check drone deliveries for infeasibility
+    for dd in p.drone_deliveries:
+        flight_dist = (instance.drone_distance(dd.launch_node, dd.customer) +
+                      instance.drone_distance(dd.customer, dd.retrieve_node))
+        if flight_dist > instance.drone_endurance + 1e-10:
+            Cin.add(dd.customer)
+
+    # Check truck route nodes for temporal infeasibility
+    truck_arrival = timeline['truck_arrival']
+    for node_id in p.truck_route:
+        arrival = truck_arrival.get(node_id, float('inf'))
+        cust = instance.nodes[node_id]
+        if arrival > cust.latest_time + 1e-10:
+            Cin.add(node_id)
+
+    if not Cin:
+        return p
+
+    # Step 2: Remove infeasible assignments (line 2)
+    p_prime = Solution(
+        truck_route=[n for n in p.truck_route if n not in Cin],
+        drone_deliveries=[dd for dd in p.drone_deliveries if dd.customer not in Cin]
+    )
+
+    # Build set of unassigned nodes
+    Cun = Cin.copy()  # Nodes to reassign
+    assigned = p_prime.get_all_customer_nodes()
+    Cun.update([nid for nid in range(1, instance.num_customers + 1)
+                if nid not in assigned])
+
+    if not Cun:
+        return p_prime
+
+    # Step 3: Find all possible assignments (lines 3-8)
+    P_all = []  # List of (i, j, k, d, cost) for each infeasible node
+
+    truck_full = [0] + p_prime.truck_route + [0]
+
+    for j in Cun:
+        if not instance.nodes[j].is_drone_eligible:
+            # Must be served by truck
+            P_all.append(('truck', j))
+            continue
+
+        node_options = []
+        for d in range(1, instance.num_drones + 1):
+            for i_idx, i_node in enumerate(truck_full):
+                for k_idx in range(i_idx + 1, len(truck_full)):
+                    k_node = truck_full[k_idx]
+                    flight_dist = (instance.drone_distance(i_node, j) +
+                                  instance.drone_distance(j, k_node))
+                    if flight_dist <= instance.drone_endurance + 1e-10:
+                        cost = instance.drone_cost_per_unit * flight_dist
+                        node_options.append((i_node, j, k_node, d, cost))
+
+        if node_options:
+            # Sort by cost
+            node_options.sort(key=lambda x: x[4])
+            P_all.append(('drone', node_options))
+        else:
+            # Must be served by truck
+            P_all.append(('truck', j))
+
+    # Check if all nodes can be assigned
+    can_assign_all = True
+    for item in P_all:
+        if item[0] == 'drone' and not item[1]:
+            can_assign_all = False
+            break
+
+    if not can_assign_all:
+        return solution  # Return original unchanged
+
+    # Step 4: Assign iteratively (lines 9-20)
+    truck_nodes_to_add = []
+    drone_deliveries_to_add = []
+
+    assigned_set = set()
+    while len(assigned_set) < len(Cun):
+        # Find node with least options (line 11)
+        best_to_assign = None
+        min_options = float('inf')
+
+        for idx, item in enumerate(P_all):
+            if idx in assigned_set:
+                continue
+            if item[0] == 'truck':
+                num_options = 1  # Truck assignment is always available
+            else:
+                num_options = len(item[1])
+
+            if num_options < min_options:
+                min_options = num_options
+                best_to_assign = idx
+
+        if best_to_assign is None:
+            break
+
+        item = P_all[best_to_assign]
+        if item[0] == 'truck':
+            j = item[1]
+            # Add to truck nodes
+            truck_nodes_to_add.append(j)
+        else:
+            # Use cheapest assignment (line 14)
+            options = item[1]
+            if options:
+                i_node, j, k_node, d, _ = options[0]
+                drone_deliveries_to_add.append(DroneDelivery(
+                    drone_id=d,
+                    launch_node=i_node,
+                    customer=j,
+                    retrieve_node=k_node
+                ))
+
+        assigned_set.add(best_to_assign)
+
+    # Build final repaired solution
+    all_truck_nodes = p_prime.truck_route + truck_nodes_to_add
+    repaired_truck_route = nearest_neighbor_tw(instance, all_truck_nodes, random_state)
+
+    repaired_solution = Solution(
+        truck_route=repaired_truck_route,
+        drone_deliveries=p_prime.drone_deliveries + drone_deliveries_to_add
+    )
+
+    return repaired_solution
+
+
+# ==============================================================================
+# Neighborhood Operators N1-N6 (Section IV-D)
+# ==============================================================================
+
+def operator_n1_truck_to_drone(instance: ProblemInstance, solution: Solution,
+                               random_state: np.random.RandomState) -> Solution:
+    """
+    N1: Truck-to-Drone Operator (Section IV-D.1).
+
+    Changes a customer node served by the truck to a customer node
+    served by a drone. Deletes the most expensive (in cost) truck node
+    and reassigns it to a drone via Repair.
+    """
+    if not solution.truck_route:
+        return solution.copy()
+
+    sol = solution.copy()
+
+    # Find the most "expensive" truck node in terms of added distance
+    truck_full = [0] + sol.truck_route + [0]
+    max_cost = -1
+    worst_idx = -1
+    worst_node = -1
+
+    for idx, node in enumerate(sol.truck_route):
+        if not instance.nodes[node].is_drone_eligible:
+            continue
+        # Calculate cost contribution: distance before + distance after
+        prev_node = truck_full[idx]  # idx in truck_route maps to idx in truck_full
+        next_node = truck_full[idx + 2]  # +2 because of depot offset
+        cost_before = instance.truck_cost_per_unit * (
+            instance.truck_distance(prev_node, node) +
+            instance.truck_distance(node, next_node)
+        )
+        cost_after_removal = instance.truck_cost_per_unit * instance.truck_distance(prev_node, next_node)
+        cost_saving = cost_before - cost_after_removal
+
+        if cost_saving > max_cost:
+            max_cost = cost_saving
+            worst_idx = idx
+            worst_node = node
+
+    if worst_node < 0:
+        return sol
+
+    # Remove node from truck route
+    sol.truck_route.pop(worst_idx)
+
+    # Try to assign it to a drone using Repair
+    Cin = {worst_node}
+    sol = _repair_specific(instance, sol, Cin, random_state)
+
+    # Check feasibility
+    if not instance.is_feasible(sol):
+        return solution.copy()  # Return original if infeasible
+
+    return sol
+
+
+def operator_n2_drone_to_truck(instance: ProblemInstance, solution: Solution,
+                               random_state: np.random.RandomState) -> Solution:
+    """
+    N2: Drone-to-Truck Operator (Section IV-D.2).
+
+    Changes a customer node served by a drone to a customer node
+    served by the truck. Selects the most expensive drone assignment
+    and moves it to the truck route.
+    """
+    if not solution.drone_deliveries:
+        return solution.copy()
+
+    sol = solution.copy()
+
+    # Find the most expensive drone delivery
+    max_cost = -1
+    worst_del_idx = -1
+
+    for idx, dd in enumerate(sol.drone_deliveries):
+        flight_cost = instance.drone_cost_per_unit * (
+            instance.drone_distance(dd.launch_node, dd.customer) +
+            instance.drone_distance(dd.customer, dd.retrieve_node)
+        )
+        if flight_cost > max_cost:
+            max_cost = flight_cost
+            worst_del_idx = idx
+
+    if worst_del_idx < 0:
+        return sol
+
+    # Remove drone delivery, add customer to truck route
+    removed_node = sol.drone_deliveries[worst_del_idx].customer
+    sol.drone_deliveries.pop(worst_del_idx)
+
+    # Insert into truck route at best position (cheapest insertion)
+    sol.truck_route = _cheapest_insertion(instance, sol.truck_route, removed_node, random_state)
+
+    # Check feasibility
+    sol.clear_cache()
+    if not instance.is_feasible(sol):
+        return solution.copy()
+
+    return sol
+
+
+def operator_n3_swap(instance: ProblemInstance, solution: Solution,
+                     random_state: np.random.RandomState) -> Solution:
+    """
+    N3: Swap Operator (Section IV-D.3).
+
+    Swaps a truck-served node with a drone-served node.
+    Randomly selects one from each set and exchanges their assignments.
+    """
+    if not solution.truck_route or not solution.drone_deliveries:
+        return solution.copy()
+
+    sol = solution.copy()
+
+    # Select a random truck node that is drone-eligible
+    eligible_truck = [n for n in sol.truck_route if instance.nodes[n].is_drone_eligible]
+    if not eligible_truck:
+        return sol
+
+    truck_node = eligible_truck[random_state.randint(0, len(eligible_truck))]
+
+    # Select a random drone node
+    drone_del_idx = random_state.randint(0, len(sol.drone_deliveries))
+    drone_node = sol.drone_deliveries[drone_del_idx].customer
+
+    # Swap: remove truck_node from truck route, add drone_node to truck
+    truck_idx = sol.truck_route.index(truck_node)
+    sol.truck_route[truck_idx] = drone_node
+
+    # Remove old drone delivery
+    sol.drone_deliveries.pop(drone_del_idx)
+
+    # Try to assign truck_node to a drone via repair
+    Cin = {truck_node}
+    sol = _repair_specific(instance, sol, Cin, random_state)
+
+    # Check feasibility
+    sol.clear_cache()
+    if not instance.is_feasible(sol):
+        return solution.copy()
+
+    return sol
+
+
+def operator_n4_2opt(instance: ProblemInstance, solution: Solution,
+                     random_state: np.random.RandomState) -> Solution:
+    """
+    N4: 2-Opt Operator (Section IV-D.4).
+
+    Improves the truck route (Part 1) by exchanging two edges.
+    Tries multiple 2-opt combinations, keeps the best feasible one.
+    Uses Repair to fix drone delivery references.
+    """
+    if len(solution.truck_route) < 4:
+        return solution.copy()
+
+    original = solution.copy()
+    n = len(original.truck_route)
+    best_sol = original
+    best_cost = float('inf')
+
+    # Try multiple random 2-opt moves
+    for _ in range(10):
+        pos1 = random_state.randint(0, n - 2)
+        pos2 = random_state.randint(pos1 + 1, n - 1)
+
+        candidate = original.copy()
+        # 2-opt: reverse the segment
+        candidate.truck_route[pos1:pos2 + 1] = list(reversed(candidate.truck_route[pos1:pos2 + 1]))
+        candidate.clear_cache()
+
+        # Repair drone deliveries that reference nodes whose positions changed
+        candidate = repair(instance, candidate, random_state)
+        instance.evaluate(candidate)
+
+        if candidate._feasible and candidate._cost is not None:
+            if candidate._cost < best_cost:
+                best_cost = candidate._cost
+                best_sol = candidate
+
+    return best_sol if best_sol is not original else solution.copy()
+
+
+def operator_n5_greedy_deletion_reinsertion(instance: ProblemInstance, solution: Solution,
+                                            random_state: np.random.RandomState) -> Solution:
+    """
+    N5: Greedy-Deletion-Reinsertion Operator (Section IV-D.5).
+
+    Identifies and deletes the most expensive drone assignment (by flight distance),
+    then uses Repair to reassign the deleted node. Tries multiple candidates
+    and keeps the best result.
+    """
+    if not solution.drone_deliveries:
+        return solution.copy()
+
+    original = solution.copy()
+
+    # Find the top-3 most expensive drone deliveries, try reinserting each
+    scored = []
+    for idx, dd in enumerate(original.drone_deliveries):
+        flight_dist = instance.drone_distance(dd.launch_node, dd.customer) + \
+                      instance.drone_distance(dd.customer, dd.retrieve_node)
+        scored.append((flight_dist, idx, dd.customer))
+
+    scored.sort(reverse=True)  # Most expensive first
+    best_sol = original
+    best_cost = float('inf')
+
+    # Try reinserting the top-k most expensive
+    for _, del_idx, customer in scored[:3]:
+        candidate = original.copy()
+        candidate.drone_deliveries.pop(del_idx)
+        candidate.clear_cache()
+
+        # Reinsert via repair
+        repaired = repair(instance, candidate, random_state)
+        instance.evaluate(repaired)
+
+        if repaired._feasible and repaired._cost is not None:
+            if repaired._cost < best_cost:
+                best_cost = repaired._cost
+                best_sol = repaired
+
+    return best_sol if best_sol is not original else solution.copy()
+
+
+def operator_n6_random_deletion_reinsertion(instance: ProblemInstance, solution: Solution,
+                                            random_state: np.random.RandomState) -> Solution:
+    """
+    N6: Random-Deletion-Reinsertion Operator (Section IV-D.6).
+
+    Randomly deletes drone assignments and tries to reassign.
+    Tries multiple random deletions, keeps the best improvement.
+    """
+    if not solution.drone_deliveries:
+        return solution.copy()
+
+    original = solution.copy()
+    best_sol = original
+    best_cost = float('inf')
+
+    # Try 3 random deletions
+    n_tries = min(3, len(original.drone_deliveries))
+    indices = random_state.choice(len(original.drone_deliveries), n_tries, replace=False)
+
+    for del_idx in indices:
+        candidate = original.copy()
+        removed_node = candidate.drone_deliveries[del_idx].customer
+        candidate.drone_deliveries.pop(del_idx)
+        candidate.clear_cache()
+
+        repaired = repair(instance, candidate, random_state)
+        instance.evaluate(repaired)
+
+        if repaired._feasible and repaired._cost is not None:
+            if repaired._cost < best_cost:
+                best_cost = repaired._cost
+                best_sol = repaired
+
+    return best_sol if best_sol is not original else solution.copy()
+
+
+# ==============================================================================
+# Helper functions for operators
+# ==============================================================================
+
+def _cheapest_insertion(instance: ProblemInstance, route: List[int], node: int,
+                        random_state: np.random.RandomState) -> List[int]:
+    """Insert node into route at the position with minimum additional cost."""
+    if not route:
+        return [node]
+
+    full_route = [0] + route + [0]
+    best_cost = float('inf')
+    best_pos = -1
+
+    for pos in range(len(route) + 1):
+        prev_node = full_route[pos]
+        next_node = full_route[pos + 1]
+
+        additional_cost = (
+            instance.truck_distance(prev_node, node) +
+            instance.truck_distance(node, next_node) -
+            instance.truck_distance(prev_node, next_node)
+        )
+
+        if additional_cost < best_cost:
+            best_cost = additional_cost
+            best_pos = pos
+
+    new_route = route.copy()
+    new_route.insert(best_pos, node)
+    return new_route
+
+
+def _repair_specific(instance: ProblemInstance, solution: Solution,
+                     nodes_to_reassign: Set[int],
+                     random_state: np.random.RandomState) -> Solution:
+    """
+    Repair a solution by reassigning specific nodes.
+    Used by N1, N3, N5, N6 operators.
+    """
+    sol = solution.copy()
+
+    # Remove any existing assignments for these nodes
+    sol.drone_deliveries = [dd for dd in sol.drone_deliveries
+                            if dd.customer not in nodes_to_reassign]
+    sol.truck_route = [n for n in sol.truck_route if n not in nodes_to_reassign]
+
+    truck_full = [0] + sol.truck_route + [0]
+    assigned_truck = set(sol.truck_route)
+    assigned_drone = {dd.customer for dd in sol.drone_deliveries}
+
+    for node in nodes_to_reassign:
+        if not instance.nodes[node].is_drone_eligible:
+            # Must go to truck
+            sol.truck_route = _cheapest_insertion(instance, sol.truck_route, node, random_state)
+            continue
+
+        # Try drone assignment first (cheapest)
+        best_option = None
+        best_cost = float('inf')
+
+        for d in range(1, instance.num_drones + 1):
+            for i_idx, i_node in enumerate(truck_full):
+                for k_idx in range(i_idx + 1, len(truck_full)):
+                    k_node = truck_full[k_idx]
+                    flight_dist = (instance.drone_distance(i_node, node) +
+                                  instance.drone_distance(node, k_node))
+                    if flight_dist <= instance.drone_endurance + 1e-10:
+                        cost = instance.drone_cost_per_unit * flight_dist
+                        if cost < best_cost:
+                            best_cost = cost
+                            best_option = (i_node, node, k_node, d)
+
+        if best_option is not None:
+            i_node, j_node, k_node, d = best_option
+            sol.drone_deliveries.append(DroneDelivery(
+                drone_id=d,
+                launch_node=i_node,
+                customer=j_node,
+                retrieve_node=k_node
+            ))
+        else:
+            # Add to truck
+            sol.truck_route = _cheapest_insertion(instance, sol.truck_route, node, random_state)
+
+        # Update truck_full for next iteration
+        truck_full = [0] + sol.truck_route + [0]
+
+    sol.clear_cache()
+    return sol
+
+
+# ==============================================================================
+# Genetic Operations (Section IV-E)
+# ==============================================================================
+
+def crossover(instance: ProblemInstance, parent1: Solution, parent2: Solution,
+              random_state: np.random.RandomState) -> Tuple[Solution, Solution]:
+    """
+    One-point crossover (Section IV-E.1).
+
+    Exchanges one customer node position between two chromosomes.
+    Only one customer node is changed in each chromosome.
+    """
+    child1 = parent1.copy()
+    child2 = parent2.copy()
+
+    # Select a random position in truck route of parent1
+    if not parent1.truck_route or not parent2.truck_route:
+        return child1, child2
+
+    pos1 = random_state.randint(0, len(parent1.truck_route))
+    node1 = parent1.truck_route[pos1] if pos1 < len(parent1.truck_route) else None
+
+    pos2 = random_state.randint(0, len(parent2.truck_route))
+    node2 = parent2.truck_route[pos2] if pos2 < len(parent2.truck_route) else None
+
+    if node1 is None or node2 is None:
+        return child1, child2
+
+    # Exchange: put node1 into child2, node2 into child1
+    # Child 2: insert node1 at position pos1, remove from drone if needed
+    child2 = _insert_and_repair(instance, parent2, node1, pos1, random_state)
+
+    # Child 1: insert node2 at position pos2
+    child1 = _insert_and_repair(instance, parent1, node2, pos2, random_state)
+
+    return child1, child2
+
+
+def _insert_and_repair(instance: ProblemInstance, parent: Solution,
+                       node: int, position: int,
+                       random_state: np.random.RandomState) -> Solution:
+    """Insert a node into parent's truck route at given position, repair if needed."""
+    child = parent.copy()
+
+    # Check if node is already in parent
+    if node in child.truck_route:
+        # Just ensure it stays in truck route (no change needed)
+        return child
+
+    # Check if node is in drone deliveries
+    was_in_drone = False
+    for idx, dd in enumerate(child.drone_deliveries):
+        if dd.customer == node:
+            child.drone_deliveries.pop(idx)
+            was_in_drone = True
+            break
+
+    # Insert node at specified position in truck route
+    pos = min(position, len(child.truck_route))
+    child.truck_route.insert(pos, node)
+
+    # If the node was in truck route of parent but at different position,
+    # we might have duplicates; remove original
+    # (This case shouldn't happen with the exchange logic above)
+
+    # Check feasibility
+    child.clear_cache()
+    if not instance.is_feasible(child):
+        # Try repair
+        infeasible_nodes = set()
+        for dd in child.drone_deliveries:
+            flight_dist = (instance.drone_distance(dd.launch_node, dd.customer) +
+                          instance.drone_distance(dd.customer, dd.retrieve_node))
+            if flight_dist > instance.drone_endurance + 1e-10:
+                infeasible_nodes.add(dd.customer)
+
+        if infeasible_nodes:
+            child = _repair_specific(instance, child, infeasible_nodes, random_state)
+
+    return child
+
+
+def mutation(instance: ProblemInstance, solution: Solution,
+             random_state: np.random.RandomState) -> Solution:
+    """
+    Multi-mode mutation using N1, N2, N3 (Section IV-E.2).
+
+    Randomly selects one of N1, N2, N3 with equal probability.
+    """
+    r = random_state.random()
+
+    if r < config.N1_PROB:
+        return operator_n1_truck_to_drone(instance, solution, random_state)
+    elif r < config.N1_PROB + config.N2_PROB:
+        return operator_n2_drone_to_truck(instance, solution, random_state)
+    else:
+        return operator_n3_swap(instance, solution, random_state)
+
+
+# ==============================================================================
+# Neighborhood lookup
+# ==============================================================================
+
+# Map operator names to functions for PLS (uses N4, N5, N6)
+PLS_OPERATORS = {
+    'N4': operator_n4_2opt,
+    'N5': operator_n5_greedy_deletion_reinsertion,
+    'N6': operator_n6_random_deletion_reinsertion,
+}
+
+# All operators for general use
+ALL_OPERATORS = {
+    'N1': operator_n1_truck_to_drone,
+    'N2': operator_n2_drone_to_truck,
+    'N3': operator_n3_swap,
+    'N4': operator_n4_2opt,
+    'N5': operator_n5_greedy_deletion_reinsertion,
+    'N6': operator_n6_random_deletion_reinsertion,
+}
+
+
+def apply_operator(name: str, instance: ProblemInstance, solution: Solution,
+                   random_state: np.random.RandomState) -> Solution:
+    """Apply a named operator to a solution."""
+    if name in ALL_OPERATORS:
+        return ALL_OPERATORS[name](instance, solution, random_state)
+    raise ValueError(f"Unknown operator: {name}")

@@ -1,0 +1,396 @@
+"""
+GNN Bridge — 让 HMOA 主循环无缝调用训练好的 .pt 模型。
+
+功能：
+  1. 根据实例规模自动加载对应模型（n20/n40/n60/n80）
+  2. 对实例所有节点预测卡车/无人机概率
+  3. 提供 GNN 引导的初始化（替代 Algorithm 2 的随机分配）
+  4. 提供 GNN 引导的变异方向（辅助 N1/N2/N3 决策）
+
+用法：
+  from gnn_bridge import GNNBridge
+  bridge = GNNBridge()
+  probs = bridge.predict(instance)       # (N, 1) 卡车概率
+  sol = bridge.guided_assign(instance)   # GNN 引导初始化
+"""
+
+import os, sys
+import numpy as np
+import torch
+import torch.nn.functional as F
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, 'core'))
+
+from gnn_model import GATNodeClassifier, build_knn_graph
+from problem import ProblemInstance, Solution, CustomerNode, DroneDelivery
+from operators import nearest_neighbor_tw
+
+
+# =============================================================================
+# GNN Bridge
+# =============================================================================
+
+class GNNBridge:
+    """
+    GNN 桥接器 — 自动加载对应规模的模型并提供预测接口。
+
+    Parameters
+    ----------
+    model_dir : str
+        模型文件夹路径（包含 best_model_n20.pt 等）。
+    device : str or torch.device
+        计算设备（默认自动检测 CUDA）。
+    """
+
+    # 特征归一化参数（按规模缓存，避免重复计算）
+    _norm_cache = {}
+
+    def __init__(
+        self,
+        model_dir: str | None = None,
+        device: str | torch.device | None = None,
+    ):
+        if model_dir is None:
+            model_dir = os.path.join(ROOT, 'output', 'gnn_models')
+        self.model_dir = model_dir
+
+        if device is None:
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        else:
+            self.device = torch.device(device)
+
+        # 模型缓存：{scale: model}
+        self._models: dict[str, GATNodeClassifier] = {}
+        self._k = 8  # KNN K 值（必须与训练时一致）
+
+        print(f'  [GNNBridge] 设备: {self.device}, 模型目录: {model_dir}')
+
+    def _get_scale(self, num_customers: int) -> str:
+        """根据节点数量返回规模名称。"""
+        if num_customers <= 20:
+            return 'n20'
+        elif num_customers <= 40:
+            return 'n40'
+        elif num_customers <= 60:
+            return 'n60'
+        else:
+            return 'n80'
+
+    def _load_model(self, scale: str) -> GATNodeClassifier:
+        """加载指定规模的模型（带缓存）。"""
+        if scale in self._models:
+            return self._models[scale]
+
+        model_path = os.path.join(self.model_dir, f'best_model_{scale}.pt')
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(
+                f'模型未找到: {model_path}\n'
+                f'请先运行: python gnn_train.py --scale {scale}'
+            )
+
+        model = GATNodeClassifier(
+            in_channels=6,
+            hidden_dim=128,
+            num_heads=4,
+            dropout=0.0,  # 推理时关闭 Dropout
+        ).to(self.device)
+
+        state = torch.load(model_path, map_location=self.device, weights_only=True)
+        model.load_state_dict(state)
+        model.eval()
+
+        self._models[scale] = model
+        print(f'  [GNNBridge] 加载模型: {model_path} ({sum(p.numel() for p in model.parameters()):,} 参数)')
+        return model
+
+    def _extract_features(self, instance: ProblemInstance) -> np.ndarray:
+        """
+        提取 6 维节点特征（与训练时完全一致）。
+
+        Returns
+        -------
+        features : ndarray  shape=(N, 6)
+        """
+        n = instance.num_customers
+        features = np.zeros((n, 6), dtype=np.float32)
+
+        xs, ys = [], []
+        early, late, service = [], [], []
+        for node in instance.nodes.values():
+            xs.append(node.x)
+            ys.append(node.y)
+            early.append(node.earliest_time)
+            late.append(node.latest_time)
+            service.append(node.service_time)
+
+        x_min, x_max = min(xs), max(xs)
+        y_min, y_max = min(ys), max(ys)
+        e_min, e_max = min(early), max(early)
+        l_min, l_max = min(late), max(late)
+        s_min, s_max = min(service), max(service)
+
+        x_r = x_max - x_min if x_max > x_min else 1.0
+        y_r = y_max - y_min if y_max > y_min else 1.0
+        e_r = e_max - e_min if e_max > e_min else 1.0
+        l_r = l_max - l_min if l_max > l_min else 1.0
+        s_r = s_max - s_min if s_max > s_min else 1.0
+
+        for i, node in instance.nodes.items():
+            idx = i - 1
+            features[idx, 0] = (node.x - x_min) / x_r
+            features[idx, 1] = (node.y - y_min) / y_r
+            features[idx, 2] = (node.earliest_time - e_min) / e_r
+            features[idx, 3] = (node.latest_time - l_min) / l_r
+            features[idx, 4] = (node.service_time - s_min) / s_r
+            features[idx, 5] = 1.0 if node.is_drone_eligible else 0.0
+
+        return features
+
+    @torch.no_grad()
+    def predict(self, instance: ProblemInstance) -> np.ndarray:
+        """
+        对实例的每个节点预测卡车概率。
+
+        Parameters
+        ----------
+        instance : ProblemInstance
+            问题实例。
+
+        Returns
+        -------
+        truck_probs : ndarray  shape=(N,)
+            每个节点属于卡车（0）的概率，取值 [0, 1]。
+        """
+        scale = self._get_scale(instance.num_customers)
+        model = self._load_model(scale)
+
+        features = self._extract_features(instance)                     # (N, 6)
+        n = instance.num_customers
+
+        x = torch.from_numpy(features).float().to(self.device)          # (N, 6)
+        pos = x[:, :2].clone()                                          # (N, 2)
+        batch = torch.zeros(n, dtype=torch.long, device=self.device)    # (N,)
+
+        # 构建 KNN edge_index
+        edge_index = build_knn_graph(pos, k=self._k, batch=batch)
+
+        # 推理
+        logits = model(x, edge_index, batch)                            # (N, 1)
+        probs = torch.sigmoid(logits).squeeze(-1)                       # (N,)
+
+        return probs.cpu().numpy()
+
+    def guided_assign(
+        self,
+        instance: ProblemInstance,
+        random_state: np.random.RandomState | None = None,
+        truck_ratio: float | None = None,
+    ) -> Solution:
+        """
+        GNN 引导的初始化（替代 Algorithm 2 AssignNodes 的随机分配）。
+
+        流程：
+          1. GNN 预测每个节点的卡车概率
+          2. 概率高的节点倾向分配给卡车，概率低的倾向给无人机
+          3. 用预测结果引导构造可行解
+
+        Parameters
+        ----------
+        instance : ProblemInstance
+        random_state : RandomState, optional
+        truck_ratio : float, optional
+            强制指定卡车节点比例（默认用 GNN 自适应阈值）
+
+        Returns
+        -------
+        solution : Solution
+        """
+        if random_state is None:
+            random_state = np.random.RandomState()
+
+        # GNN 预测
+        truck_probs = self.predict(instance)  # (N,)
+
+        # --- 基于预测分配节点 ---
+        C = list(range(1, instance.num_customers + 1))
+        m = instance.num_drones
+        LTL = instance.ltl
+
+        # 节点按卡车概率排序（高→可能卡车，低→可能无人机）
+        node_ids = list(range(1, instance.num_customers + 1))
+        sorted_idx = np.argsort(-truck_probs)  # 高概率在前
+
+        # 自适应阈值：至少保证 LTL 个卡车节点
+        n_truck = max(LTL, int(instance.num_customers * 0.35))
+        if truck_ratio is not None:
+            n_truck = max(LTL, int(instance.num_customers * truck_ratio))
+
+        # 非无人机可达节点强制为卡车
+        forced_truck = [nid for nid in C if not instance.nodes[nid].is_drone_eligible]
+
+        # 按 GNN 概率分配
+        Ct_set = set(forced_truck)
+        for idx in sorted_idx:
+            nid = node_ids[idx]
+            if nid in Ct_set:
+                continue
+            if len(Ct_set) < n_truck:
+                Ct_set.add(nid)
+            else:
+                break
+
+        Cd_set = set(C for C in C if C not in Ct_set)
+
+        # --- 构造可行解 ---
+        # 使用 GNN 的分配结果构建初始解
+        solution = self._build_solution(instance, list(Ct_set), list(Cd_set), random_state)
+
+        return solution
+
+    def _build_solution(
+        self,
+        instance: ProblemInstance,
+        truck_nodes: list[int],
+        drone_nodes: list[int],
+        random_state: np.random.RandomState,
+    ) -> Solution:
+        """
+        从节点分配列表构建可行解（类似 Algorithm 2 的 Step 2-4）。
+
+        用最近邻 + 时间窗构造卡车路径，
+        再用贪婪法分配无人机递送。
+        """
+        # Step 2: 构造卡车路径
+        truck_route = nearest_neighbor_tw(instance, list(truck_nodes), random_state)
+
+        # 未在 truck_route 中的 truck_nodes → 移入 drone
+        served_truck = set(truck_route)
+        unassigned_truck = [n for n in truck_nodes if n not in served_truck]
+        drone_pool = list(drone_nodes) + unassigned_truck
+
+        # Step 3-4: 贪婪分配无人机
+        drone_deliveries = []
+        Cd_prime = set(drone_pool)
+
+        # 简化的贪婪分配（类似 Algorithm 2 的 main loop）
+        # 先按时间窗紧急性排序无人机节点
+        sorted_drone = sorted(Cd_prime, key=lambda nid: instance.nodes[nid].due_time)
+
+        truck_full = [0] + truck_route + [0]
+        truck_positions = {node: idx for idx, node in enumerate(truck_full)}
+
+        for j in sorted_drone:
+            if not Cd_prime:
+                break
+
+            best_cost = float('inf')
+            best_delivery = None
+
+            for d in range(1, instance.num_drones + 1):
+                for i_pos in range(len(truck_full) - 1):
+                    i = truck_full[i_pos]
+                    # 找 i 之后最近的可回收节点
+                    for k_pos in range(i_pos + 1, len(truck_full)):
+                        k = truck_full[k_pos]
+                        # 检查无人机可行性（距离 <= 续航）
+                        dist_forward = instance.drone_distance(i, j)
+                        dist_back = instance.drone_distance(j, k)
+                        total_dist = dist_forward + dist_back
+
+                        if total_dist > instance.drone_endurance:
+                            continue
+
+                        cost = total_dist
+                        if cost < best_cost:
+                            best_cost = cost
+                            best_delivery = DroneDelivery(d, i, j, k)
+                            break  # 找到第一个可行回收点
+                    if best_delivery:
+                        break
+
+            if best_delivery:
+                drone_deliveries.append(best_delivery)
+                Cd_prime.discard(j)
+
+        # 未分配无人机节点 → 加入卡车
+        for j in Cd_prime:
+            truck_route.append(j)
+
+        return Solution(truck_route=truck_route, drone_deliveries=drone_deliveries)
+
+
+# =============================================================================
+# 快捷函数
+# =============================================================================
+
+_global_bridge: GNNBridge | None = None
+
+
+def get_bridge(model_dir: str | None = None) -> GNNBridge:
+    """获取全局 GNNBridge 单例。"""
+    global _global_bridge
+    if _global_bridge is None:
+        _global_bridge = GNNBridge(model_dir=model_dir)
+    return _global_bridge
+
+
+def gnn_predict(instance: ProblemInstance) -> np.ndarray:
+    """快捷预测：返回每个节点的卡车概率。"""
+    return get_bridge().predict(instance)
+
+
+def gnn_guided_assign(
+    instance: ProblemInstance,
+    random_state: np.random.RandomState | None = None,
+) -> Solution:
+    """快捷初始化：GNN 引导的节点分配。"""
+    return get_bridge().guided_assign(instance, random_state)
+
+
+# =============================================================================
+# 快速测试
+# =============================================================================
+
+if __name__ == '__main__':
+    print('=' * 60)
+    print(' GNNBridge 测试')
+    print('=' * 60)
+
+    from utils import load_dumas_instance
+    import config
+
+    # 测试 n20 实例
+    inst = load_dumas_instance(
+        os.path.join(ROOT, 'dumas_instances', 'n20w80.001.txt'),
+        num_drones=config.DEFAULT_DRONE_COUNT,
+    )
+
+    bridge = GNNBridge()
+
+    # 预测
+    probs = bridge.predict(inst)
+    print(f'\n  预测结果 ({inst.num_customers} 节点):')
+    for i, node in inst.nodes.items():
+        idx = i - 1
+        label = 'Truck' if probs[idx] > 0.5 else 'Drone'
+        print(f'    节点 {i:2d}: P(卡车)={probs[idx]:.3f} → {label}')
+
+    n_truck = (probs > 0.5).sum()
+    n_drone = (probs < 0.5).sum()
+    print(f'\n  统计: {n_truck} 卡车, {n_drone} 无人机')
+
+    # GNN 引导初始化
+    sol = bridge.guided_assign(inst)
+    print(f'\n  GNN 引导初始化:')
+    print(f'    卡车路径: {sol.truck_route}')
+    print(f'    无人机数: {len(sol.drone_deliveries)}')
+    truck_set = set(sol.truck_route)
+    drone_set = {d.customer for d in sol.drone_deliveries}
+    overlap = truck_set & drone_set
+    print(f'    覆盖节点: {len(truck_set | drone_set)}/{inst.num_customers}')
+    print(f'    重叠: {len(overlap)}')
+    print(f'    成本: {sol._cost:.1f}' if sol._cost is not None else '    成本: 未计算')
+    print(f'    满意度: {sol._satisfaction:.4f}' if sol._satisfaction is not None else '    满意度: 未计算')
+    print('\n  测试通过!')

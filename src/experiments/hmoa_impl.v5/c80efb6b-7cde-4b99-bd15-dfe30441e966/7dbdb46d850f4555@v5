@@ -1,0 +1,154 @@
+#!/usr/bin/env python
+import sys; import os; sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'core'))
+"""Paper-parameter Dumas experiment: n=20, pop=100, iter=500, kmax=5, runs=15."""
+import sys, os, time, json, numpy as np
+from datetime import datetime
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
+import config
+config.POPULATION_SIZE = 100
+config.MAX_ITERATIONS = 500
+config.MAX_PF_SIZE = 500
+config.KMAX = 5
+config.CROSSOVER_RATE = 0.9
+config.MUTATION_RATE = 0.3
+config.NUM_RUNS = 15
+
+from utils import load_dumas_instance
+from algorithm import hmoa
+from metrics import compute_hypervolume, compute_c_metric, get_reference_point
+
+os.makedirs('output/dumas_paper', exist_ok=True)
+
+# Load previous progress for resume
+progress_file = 'output/dumas_paper/progress_w80.json'
+completed = {}
+if os.path.exists(progress_file):
+    with open(progress_file) as f:
+        completed = json.load(f)
+    print(f'Resuming: {len(completed)} instances already completed')
+
+instances = [
+    # n=20: 5 instances
+    ('n20w80_001', 'dumas_instances/n20w80.001.txt'),
+    ('n20w80_002', 'dumas_instances/n20w80.002.txt'),
+    ('n20w80_003', 'dumas_instances/n20w80.003.txt'),
+    ('n20w80_004', 'dumas_instances/n20w80.004.txt'),
+    ('n20w80_005', 'dumas_instances/n20w80.005.txt'),
+    # n=40: 5 instances
+    ('n40w80_001', 'dumas_instances/n40w80.001.txt'),
+    ('n40w80_002', 'dumas_instances/n40w80.002.txt'),
+    ('n40w80_003', 'dumas_instances/n40w80.003.txt'),
+    ('n40w80_004', 'dumas_instances/n40w80.004.txt'),
+    ('n40w80_005', 'dumas_instances/n40w80.005.txt'),
+    # n=60: 5 instances
+    ('n60w80_001', 'dumas_instances/n60w80.001.txt'),
+    ('n60w80_002', 'dumas_instances/n60w80.002.txt'),
+    ('n60w80_003', 'dumas_instances/n60w80.003.txt'),
+    ('n60w80_004', 'dumas_instances/n60w80.004.txt'),
+    ('n60w80_005', 'dumas_instances/n60w80.005.txt'),
+    # n=80: 5 instances
+    ('n80w80_001', 'dumas_instances/n80w80.001.txt'),
+    ('n80w80_002', 'dumas_instances/n80w80.002.txt'),
+    ('n80w80_003', 'dumas_instances/n80w80.003.txt'),
+    ('n80w80_004', 'dumas_instances/n80w80.004.txt'),
+    ('n80w80_005', 'dumas_instances/n80w80.005.txt'),
+]
+
+NRUNS = 15
+results = {}
+
+t_start = datetime.now()
+print('='*70)
+print(f'  HMOA DUMAS EXPERIMENT - PAPER PARAMETERS')
+print(f'  pop={config.POPULATION_SIZE}, iter={config.MAX_ITERATIONS}')
+print(f'  kmax={config.KMAX}, pc={config.CROSSOVER_RATE}, pm={config.MUTATION_RATE}')
+print(f'  runs={NRUNS}, instances={len(instances)}')
+print(f'  Started: {t_start.strftime("%Y-%m-%d %H:%M:%S")}')
+print('='*70)
+
+for name, fpath in instances:
+    inst = load_dumas_instance(fpath, num_drones=2)
+    print(f'\n{"="*60}')
+    print(f'  {name}: n={inst.num_customers}, LTL={inst.ltl}, eps={inst.drone_endurance:.1f}')
+    print(f'{"="*60}')
+
+    pf_h, pf_n = [], []
+    t_h, t_n = [], []
+
+    # HMOA with PLS (kmax=5)
+    config.KMAX = 5
+    for r in range(NRUNS):
+        seed = hash(f'{name}_h_{r}') % (2**31)
+        sys.stdout.write(f'  HMOA  run {r+1:2d}/{NRUNS}... '); sys.stdout.flush()
+        t0 = time.time()
+        pf, _, _ = hmoa(inst, 100, 500, seed, verbose=False)
+        e = time.time()-t0
+        pf_h.append(pf); t_h.append(e)
+        if pf:
+            cs = [s._cost for s in pf if s._cost]
+            ss = [s._satisfaction for s in pf if s._satisfaction]
+            print(f'PF={len(pf)}, cost=[{min(cs):.0f},{max(cs):.0f}], sat=[{min(ss):.1f},{max(ss):.1f}], {e:.0f}s')
+        else:
+            print(f'EMPTY, {e:.0f}s')
+
+    # HMOA-noLS
+    config.KMAX = 0
+    for r in range(NRUNS):
+        seed = hash(f'{name}_n_{r}') % (2**31)
+        sys.stdout.write(f'  noLS  run {r+1:2d}/{NRUNS}... '); sys.stdout.flush()
+        t0 = time.time()
+        pf, _, _ = hmoa(inst, 100, 500, seed, verbose=False)
+        e = time.time()-t0
+        pf_n.append(pf); t_n.append(e)
+        if pf:
+            cs = [s._cost for s in pf if s._cost]
+            ss = [s._satisfaction for s in pf if s._satisfaction]
+            print(f'PF={len(pf)}, cost=[{min(cs):.0f},{max(cs):.0f}], sat=[{min(ss):.1f},{max(ss):.1f}], {e:.0f}s')
+        else:
+            print(f'EMPTY, {e:.0f}s')
+
+    config.KMAX = 5
+
+    # Compute metrics
+    ref = get_reference_point(pf_h + pf_n)
+    vals_h = [compute_hypervolume(p, ref) for p in pf_h if p]
+    vals_n = [compute_hypervolume(p, ref) for p in pf_n if p]
+    cs_hn = [compute_c_metric(h, n) for h, n in zip(pf_h, pf_n) if h and n]
+    cs_nh = [compute_c_metric(n, h) for h, n in zip(pf_h, pf_n) if h and n]
+
+    r = {
+        'n': inst.num_customers,
+        'hv_hmoa_mean': float(np.mean(vals_h)), 'hv_hmoa_std': float(np.std(vals_h)),
+        'hv_nols_mean': float(np.mean(vals_n)), 'hv_nols_std': float(np.std(vals_n)),
+        'c_hn_mean': float(np.mean(cs_hn)), 'c_hn_std': float(np.std(cs_hn)),
+        'c_nh_mean': float(np.mean(cs_nh)), 'c_nh_std': float(np.std(cs_nh)),
+        't_hmoa_mean': float(np.mean(t_h)), 't_nols_mean': float(np.mean(t_n)),
+    }
+    results[name] = r
+
+    winner = 'HMOA' if r['c_hn_mean'] > r['c_nh_mean'] else ('noLS' if r['c_nh_mean'] > r['c_hn_mean'] else 'TIE')
+    print(f'  => C(H,N)={r["c_hn_mean"]:.4f}+/-{r["c_hn_std"]:.4f}, C(N,H)={r["c_nh_mean"]:.4f}+/-{r["c_nh_std"]:.4f} [{winner}]')
+
+    # Save incremental results
+    with open('output/dumas_paper/results_n20w80.json', 'w') as f:
+        json.dump(results, f, indent=2)
+
+# Final summary
+t_end = datetime.now()
+print(f'\n{"="*80}')
+print(f'  FINAL SUMMARY - n=20 Dumas, Paper Parameters')
+print(f'  Duration: {t_end - t_start}')
+print(f'{"="*80}')
+print(f'{"Instance":<16} {"C(H,N)":<22} {"C(N,H)":<22} {"HV(H)":<22} {"HV(N)":<22} {"Winner":<8}')
+print('-'*80)
+c_h_all, c_n_all = [], []
+for name, r in sorted(results.items()):
+    c_h_all.append(r['c_hn_mean']); c_n_all.append(r['c_nh_mean'])
+    w = 'HMOA' if r['c_hn_mean'] > r['c_nh_mean'] else ('noLS' if r['c_nh_mean'] > r['c_hn_mean'] else 'TIE')
+    print(f'{name:<16} {r["c_hn_mean"]:.4f}+/-{r["c_hn_std"]:.3f}   {r["c_nh_mean"]:.4f}+/-{r["c_nh_std"]:.3f}   {r["hv_hmoa_mean"]:.2f}+/-{r["hv_hmoa_std"]:.1f}   {r["hv_nols_mean"]:.2f}+/-{r["hv_nols_std"]:.1f}   {w:<8}')
+print(f'{"AVERAGE":<16} {np.mean(c_h_all):.4f}            {np.mean(c_n_all):.4f}')
+print(f'{"="*80}')
+print(f'Paper expectation: C(HMOA,noLS) significantly > C(noLS,HMOA)')
+print(f'Completed: {t_end.strftime("%Y-%m-%d %H:%M:%S")}')

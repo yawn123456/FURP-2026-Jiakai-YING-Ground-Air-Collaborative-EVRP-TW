@@ -1,0 +1,380 @@
+"""
+GNN Training — GPU 优化的 GAT 节点分类器训练。
+
+用法:
+  python gnn_train.py                          # 训练全部 4 个规模
+  python gnn_train.py --scale n20              # 只训练 n20
+  python gnn_train.py --batch-size 256          # 自定义 batch size
+"""
+
+import sys, os, json, time, argparse
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torch.optim import Adam
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, ROOT)
+
+from gnn_model import GATNodeClassifier
+from gnn_dataloader import build_dataloaders
+
+# =============================================================================
+# 自适应权重：基于网格搜索结果查表插值
+# =============================================================================
+
+# 实测最优权重（网格搜索，epoch=100~150，w=60 训练数据）：
+#   n=20 -> 1.45,  n=40 -> 1.00,  n=60 -> 1.20,  n=80 -> 1.45
+# 规律：密度与权重无简单线性关系，采用分段线性插值
+_KNOWN_POINTS = [(20, 1.45), (40, 1.00), (60, 1.20), (80, 1.45)]
+
+
+def get_adaptive_weight(num_nodes: int, k: int = 8) -> float:
+    """
+    根据网格搜索结果查表插值计算 pos_weight。
+
+    Parameters
+    ----------
+    num_nodes : int
+        客户节点数（不含 depot）。
+    k : int
+        KNN 的 K 值（默认 8，仅用于记录）。
+
+    Returns
+    -------
+    weight : float
+        自适应权重，范围 [0.8, 2.0]。
+    """
+    points = sorted(_KNOWN_POINTS, key=lambda x: x[0])
+
+    # 边界外推
+    if num_nodes <= points[0][0]:
+        return points[0][1]
+    if num_nodes >= points[-1][0]:
+        return points[-1][1]
+
+    # 分段线性插值
+    for i in range(len(points) - 1):
+        n1, w1 = points[i]
+        n2, w2 = points[i + 1]
+        if n1 <= num_nodes <= n2:
+            t = (num_nodes - n1) / (n2 - n1)
+            return w1 + t * (w2 - w1)
+
+    return 1.45  # 安全回退
+
+
+# =============================================================================
+# 配置
+# =============================================================================
+
+MODEL_DIR = os.path.join(ROOT, 'output', 'gnn_models')
+_DATA_DIR_OVERRIDE = None  # 命令行覆盖
+os.makedirs(MODEL_DIR, exist_ok=True)
+
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f'  设备: {DEVICE}')
+if DEVICE.type == 'cuda':
+    print(f'  GPU: {torch.cuda.get_device_name(0)}')
+    print(f'  显存: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB')
+
+SCALE_CONFIG = {
+    'n20': {'batch_size': 256, 'max_epochs': 150, 'patience': 20},
+    'n40': {'batch_size': 256, 'max_epochs': 150, 'patience': 20},
+    'n60': {'batch_size': 128, 'max_epochs': 150, 'patience': 20},
+    'n80': {'batch_size': 128, 'max_epochs': 150, 'patience': 20},
+}
+
+TRAIN_CONFIG = {
+    'hidden_dim': 128,
+    'num_heads': 4,
+    'dropout': 0.2,
+    'learning_rate': 0.001,
+    'weight_decay': 1e-5,
+    'num_workers': 0,      # 数据已预加载到内存，无需多进程
+    'pin_memory': True,
+    'preload': True,       # 一次性载入全部图到内存
+    'seed': 42,
+}
+
+
+# =============================================================================
+# 训练 / 评估
+# =============================================================================
+
+def train_epoch(model, loader, optimizer, pos_weight: float | None = None):
+    """训练一个 epoch，返回平均 loss 和 accuracy。"""
+    model.train()
+    total_loss = 0.0
+    total_correct = 0
+    total_nodes = 0
+
+    # 构建 pos_weight 张量（仅一次）
+    pw = None
+    if pos_weight is not None:
+        pw = torch.tensor([pos_weight], device=DEVICE)
+
+    for batch in loader:
+        batch = batch.to(DEVICE, non_blocking=True)
+        mask = batch.y >= 0
+
+        optimizer.zero_grad()
+        logits = model(batch.x, batch.edge_index, batch.batch)  # (N, 1)
+        loss = F.binary_cross_entropy_with_logits(
+            logits[mask].squeeze(-1), batch.y[mask].float(),
+            pos_weight=pw,
+        )
+        loss.backward()
+        optimizer.step()
+
+        with torch.no_grad():
+            preds = (logits[mask] > 0).squeeze(-1)
+            total_correct += (preds == batch.y[mask]).sum().item()
+            total_loss += loss.item() * mask.sum().item()
+            total_nodes += mask.sum().item()
+
+    return total_loss / total_nodes, total_correct / total_nodes if total_nodes > 0 else 0.0
+
+
+@torch.no_grad()
+def evaluate(model, loader, pos_weight: float | None = None):
+    """评估模型，返回 loss, accuracy, precision, recall, f1。"""
+    model.eval()
+    total_loss = 0.0
+    total_nodes = 0
+    all_preds, all_labels = [], []
+
+    pw = None
+    if pos_weight is not None:
+        pw = torch.tensor([pos_weight], device=DEVICE)
+
+    for batch in loader:
+        batch = batch.to(DEVICE, non_blocking=True)
+        mask = batch.y >= 0
+
+        logits = model(batch.x, batch.edge_index, batch.batch)
+        loss = F.binary_cross_entropy_with_logits(
+            logits[mask].squeeze(-1), batch.y[mask].float(),
+            pos_weight=pw,
+        )
+
+        total_loss += loss.item() * mask.sum().item()
+        total_nodes += mask.sum().item()
+
+        preds = (logits[mask] > 0).squeeze(-1)
+        all_preds.append(preds.cpu())
+        all_labels.append(batch.y[mask].cpu())
+
+    avg_loss = total_loss / total_nodes if total_nodes > 0 else 0.0
+
+    preds = torch.cat(all_preds)
+    labels = torch.cat(all_labels)
+    correct = (preds == labels).sum().item()
+    total = len(labels)
+    accuracy = correct / total if total > 0 else 0.0
+
+    # 二分类指标 (drone=1 为正类)
+    tp = ((preds == 1) & (labels == 1)).sum().item()
+    fp = ((preds == 1) & (labels == 0)).sum().item()
+    fn = ((preds == 0) & (labels == 1)).sum().item()
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+
+    return avg_loss, accuracy, precision, recall, f1
+
+
+# =============================================================================
+# 单规模训练
+# =============================================================================
+
+def train_scale(scale: str, config: dict, pos_weight: float | None = None, data_dir: str | None = None):
+    """在指定规模上训练一个模型。"""
+    print(f'\n{"=" * 60}')
+    print(f'  训练: {scale}')
+    print(f'  config: batch={config["batch_size"]}, '
+          f'max_epochs={config["max_epochs"]}, patience={config["patience"]}'
+          f'{f", pos_weight={pos_weight}" if pos_weight else ""}')
+    print(f'{"=" * 60}')
+
+    # DataLoader
+    train_loader, val_loader = build_dataloaders(
+        scale=scale,
+        data_dir=data_dir,
+        batch_size=config['batch_size'],
+        num_workers=TRAIN_CONFIG['num_workers'],
+        pin_memory=TRAIN_CONFIG['pin_memory'],
+        seed=TRAIN_CONFIG['seed'],
+    )
+
+    # 验证第一个 batch 的形状
+    for batch in train_loader:
+        batch = batch.to(DEVICE)
+        print(f'  batch: x={batch.x.shape}, edge={batch.edge_index.shape}, '
+              f'graphs={batch.num_graphs}')
+        break
+
+    # 模型
+    model = GATNodeClassifier(
+        in_channels=6,
+        hidden_dim=TRAIN_CONFIG['hidden_dim'],
+        num_heads=TRAIN_CONFIG['num_heads'],
+        dropout=TRAIN_CONFIG['dropout'],
+    ).to(DEVICE)
+
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f'  参数量: {total_params:,}')
+
+    optimizer = Adam(
+        model.parameters(),
+        lr=TRAIN_CONFIG['learning_rate'],
+        weight_decay=TRAIN_CONFIG['weight_decay'],
+    )
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5,
+                                  patience=8, min_lr=1e-6)
+
+    # 训练循环
+    best_val_loss = float('inf')
+    best_epoch = 0
+    best_metrics = {}
+    patience_counter = 0
+    epoch_times = []
+
+    print(f'\n  {"Epoch":<6} {"Train Loss":<10} {"Train Acc":<10} '
+          f'{"Val Loss":<10} {"Val Acc":<10} {"F1":<8} {"Time":<7}')
+    print(f'  {"-" * 61}')
+
+    start_time = time.time()
+
+    for epoch in range(1, config['max_epochs'] + 1):
+        t0 = time.time()
+
+        train_loss, train_acc = train_epoch(model, train_loader, optimizer, pos_weight)
+        val_loss, val_acc, val_prec, val_rec, val_f1 = evaluate(model, val_loader, pos_weight)
+
+        elapsed = time.time() - t0
+        epoch_times.append(elapsed)
+        scheduler.step(val_loss)
+
+        print(f'  {epoch:<6} {train_loss:.6f}  {train_acc:.4f}   '
+              f'{val_loss:.6f}  {val_acc:.4f}   {val_f1:.4f}  {elapsed:.1f}s')
+
+        # 早停
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_epoch = epoch
+            best_metrics = {
+                'val_loss': val_loss, 'val_acc': val_acc,
+                'val_precision': val_prec, 'val_recall': val_rec, 'val_f1': val_f1,
+            }
+            patience_counter = 0
+            # 保存最佳模型
+            torch.save(model.state_dict(),
+                       os.path.join(MODEL_DIR, f'best_model_{scale}.pt'))
+        else:
+            patience_counter += 1
+            if patience_counter >= config['patience']:
+                print(f'  早停! {config["patience"]} 轮未改善 (最佳 epoch={best_epoch})')
+                break
+
+    total_time = time.time() - start_time
+    avg_time = float(np.mean(epoch_times))
+
+    print(f'\n  {"-" * 61}')
+    print(f'  {scale} 训练完成!')
+    print(f'  总时间: {total_time:.0f}s ({total_time/60:.1f}min)')
+    print(f'  平均每轮: {avg_time:.1f}s')
+    print(f'  最佳 epoch: {best_epoch}')
+    print(f'  最佳 val_loss: {best_val_loss:.6f}, val_acc: {best_metrics.get("val_acc", 0):.4f}')
+    print(f'  模型: {MODEL_DIR}/best_model_{scale}.pt')
+
+    return {
+        'scale': scale,
+        'best_epoch': best_epoch,
+        'best_val_loss': best_val_loss,
+        **best_metrics,
+        'total_time_seconds': total_time,
+        'avg_epoch_time': avg_time,
+        'total_params': total_params,
+        'config': {**config, **TRAIN_CONFIG},
+    }
+
+
+# =============================================================================
+# 主函数
+# =============================================================================
+
+def main():
+    parser = argparse.ArgumentParser(description='GAT 节点分类训练')
+    parser.add_argument('--scale', type=str, default=None,
+                        choices=['n20', 'n40', 'n60', 'n80'],
+                        help='训练指定规模（默认训练全部）')
+    parser.add_argument('--batch-size', type=int, default=None,
+                        help='覆盖默认 batch size')
+    parser.add_argument('--epochs', type=int, default=None,
+                        help='覆盖默认 max_epochs')
+    parser.add_argument('--pos-weight', type=float, default=None,
+                        help='正类（卡车）权重，用于 BCEWithLogitsLoss pos_weight')
+    parser.add_argument('--data-dir', type=str, default=None,
+                        help='by_scale 数据目录（默认 output/gnn_training_data/by_scale/）')
+    parser.add_argument('--model-dir', type=str, default=None,
+                        help='模型保存目录（默认 output/gnn_models/）')
+    args = parser.parse_args()
+
+    if args.model_dir:
+        global MODEL_DIR
+        MODEL_DIR = args.model_dir
+        os.makedirs(MODEL_DIR, exist_ok=True)
+
+    # 设置随机种子
+    torch.manual_seed(TRAIN_CONFIG['seed'])
+    np.random.seed(TRAIN_CONFIG['seed'])
+    if DEVICE.type == 'cuda':
+        torch.cuda.manual_seed(TRAIN_CONFIG['seed'])
+
+    # 确定训练规模
+    scales = [args.scale] if args.scale else ['n20', 'n40', 'n60', 'n80']
+
+    all_results = {}
+
+    for scale in scales:
+        cfg = dict(SCALE_CONFIG[scale])
+        if args.batch_size:
+            cfg['batch_size'] = args.batch_size
+        if args.epochs:
+            cfg['max_epochs'] = args.epochs
+
+        # 自适应权重：未指定时按图密度自动计算
+        pw = args.pos_weight
+        if pw is None:
+            n_nodes = int(scale[1:])  # 'n20' -> 20
+            pw = get_adaptive_weight(n_nodes)
+            print(f'  自适应 pos_weight={pw:.2f} (n={n_nodes}, density={8/n_nodes:.3f})')
+        result = train_scale(scale, cfg, pos_weight=pw, data_dir=args.data_dir)
+        all_results[scale] = result
+
+        torch.cuda.empty_cache() if DEVICE.type == 'cuda' else None
+
+    # 保存训练报告
+    report_path = os.path.join(MODEL_DIR, 'training_report.json')
+    with open(report_path, 'w') as f:
+        json.dump(all_results, f, indent=2, default=str)
+    print(f'\n训练报告已保存: {report_path}')
+
+    # 打印汇总
+    print(f'\n{"=" * 60}')
+    print(f'  训练汇总')
+    print(f'{"=" * 60}')
+    print(f'  {"Scale":<8} {"Val Acc":<10} {"Val F1":<10} {"Best Ep":<10} {"Time":<10}')
+    print(f'  {"-" * 48}')
+    for scale in scales:
+        r = all_results[scale]
+        print(f'  {scale:<8} {r.get("val_acc", 0):.4f}    '
+              f'{r.get("val_f1", 0):.4f}    '
+              f'{r["best_epoch"]:<10} {r["total_time_seconds"]:.0f}s')
+    print(f'{"=" * 60}')
+
+
+if __name__ == '__main__':
+    main()

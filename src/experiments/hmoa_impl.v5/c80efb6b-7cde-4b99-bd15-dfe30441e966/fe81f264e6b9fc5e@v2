@@ -1,0 +1,218 @@
+"""
+GPU 优化的 DataLoader — 按规模加载 GNN 训练/验证数据。
+
+设计要点：
+  - 数据集按规模（n=20,40,60,80）分文件夹存储，每个图为独立 .pt 文件
+  - 使用 torch_geometric.loader.DataLoader，支持 pin_memory + num_workers
+  - 8:2 分层划分训练/验证集，保证同一张图不跨集
+  - Batch.from_data_list 自动批处理小图（最大 80 节点）
+"""
+
+import os, json, random
+import torch
+from torch.utils.data import Dataset, random_split
+from torch_geometric.data import Data, Batch
+from torch_geometric.loader import DataLoader
+
+
+# =============================================================================
+# PyG Dataset — 从 .pt 文件加载
+# =============================================================================
+
+class ScaleGraphDataset(Dataset):
+    """
+    按规模组织的图数据集。
+
+    每个样本是一个 torch_geometric.data.Data 对象，包含：
+      - x: (n, 6)  节点特征
+      - y: (n,)    节点标签（0=卡车, 1=无人机, -1=忽略）
+      - pos: (n, 2) XY 坐标（来自 x 前两维）
+
+    Parameters
+    ----------
+    data_dir : str
+        by_scale 目录路径，包含 n20/n40/n60/n80 子文件夹
+    scale : str
+        规模名称，例如 'n20', 'n40', 'n60', 'n80'
+    """
+
+    def __init__(self, data_dir: str, scale: str):
+        self.scale_dir = os.path.join(data_dir, scale)
+        if not os.path.isdir(self.scale_dir):
+            raise FileNotFoundError(f'未找到规模目录: {self.scale_dir}')
+
+        # 扫描所有 .pt 文件并按数字排序
+        pt_files = [f for f in os.listdir(self.scale_dir) if f.endswith('.pt')]
+        pt_files.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
+
+        self.file_paths = [os.path.join(self.scale_dir, f) for f in pt_files]
+        self.num_graphs = len(self.file_paths)
+
+        # 加载元数据
+        meta_path = os.path.join(self.scale_dir, 'metadata.json')
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                self.metadata = json.load(f)
+        else:
+            self.metadata = {'scale': scale, 'num_graphs': self.num_graphs}
+
+        # 惰性加载：__getitem__ 时才读取 .pt 文件
+        # DataLoader 的 num_workers 会并行处理磁盘 I/O
+        print(f'  [{scale}] 注册完成: {self.num_graphs} 图, '
+              f'每图 {self.metadata.get("num_nodes", "?")} 节点')
+
+    def __len__(self) -> int:
+        return self.num_graphs
+
+    def __getitem__(self, idx: int) -> Data:
+        """惰性加载：按需从磁盘读取 .pt 文件。"""
+        return torch.load(self.file_paths[idx], weights_only=False)
+
+
+# =============================================================================
+# 无需自定义 collate — DataLoader 自动处理
+# =============================================================================
+
+def collate_graphs(batch: list) -> Batch:
+    """
+    自定义 collate 函数（显式使用 Batch.from_data_list）。
+
+    注: torch_geometric.loader.DataLoader 内部已默认使用此逻辑，
+    这里显式定义以便更好地控制。
+
+    Parameters
+    ----------
+    batch : list[Data]
+        一个 batch 的 Data 对象列表
+
+    Returns
+    -------
+    Batch
+        批处理后的 PyG Batch 对象，包含 x, y, pos, batch 属性
+        其中 batch 向量标识每个节点所属的图索引
+    """
+    return Batch.from_data_list(batch)
+
+
+# =============================================================================
+# 构建 DataLoader
+# =============================================================================
+
+def build_dataloaders(
+    scale: str,
+    data_dir: str = None,
+    batch_size: int = 128,
+    train_ratio: float = 0.8,
+    num_workers: int = 4,
+    pin_memory: bool = True,
+    seed: int = 42,
+) -> tuple:
+    """
+    构建指定规模的训练集和验证集 DataLoader。
+
+    Parameters
+    ----------
+    scale : str
+        规模名称，如 'n20', 'n40', 'n60', 'n80'
+    data_dir : str or None
+        by_scale 目录路径。None 则使用默认路径。
+    batch_size : int
+        批大小（默认 128，显存充足可设 256）。
+    train_ratio : float
+        训练集比例（默认 0.8），剩余为验证集。
+    num_workers : int
+        数据加载子进程数（默认 4，单卡 GPU 推荐）。
+    pin_memory : bool
+        开启 pin_memory 加速 CPU→GPU 传输（默认 True）。
+    seed : int
+        随机种子，保证划分可复现。
+
+    Returns
+    -------
+    train_loader : DataLoader
+    val_loader : DataLoader
+    """
+    if data_dir is None:
+        data_dir = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            'output', 'gnn_training_data', 'by_scale'
+        )
+
+    # 加载完整数据集
+    dataset = ScaleGraphDataset(data_dir, scale)
+
+    # 8:2 划分（保证图不跨集）
+    n_total = len(dataset)
+    n_train = int(n_total * train_ratio)
+    n_val = n_total - n_train
+
+    gen = torch.Generator().manual_seed(seed)
+    train_ds, val_ds = random_split(dataset, [n_train, n_val], generator=gen)
+
+    print(f'  [{scale}] 划分: 训练 {n_train} / 验证 {n_val}')
+
+    # 构建 DataLoader
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        # collate_fn=collate_graphs,  # PyG DataLoader 自动处理
+        # follow_batch 可选的附加索引
+    )
+
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=batch_size,
+        shuffle=False,         # 验证集无需打乱
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+    )
+
+    return train_loader, val_loader
+
+
+# =============================================================================
+# 快速测试
+# =============================================================================
+
+def _test_dataloader():
+    """验证 DataLoader 能正常迭代并产出正确的形状。"""
+    print('=' * 60)
+    print(' DataLoader 测试')
+    print('=' * 60)
+
+    for scale in ['n20', 'n40', 'n60', 'n80']:
+        train_loader, val_loader = build_dataloaders(
+            scale=scale,
+            batch_size=32,
+            num_workers=0,       # 测试时不用多进程
+            pin_memory=False,
+        )
+
+        # 取一个 batch 验证形状
+        for batch in train_loader:
+            print(f'\n  [{scale}] batch 形状:')
+            print(f'    x:     {batch.x.shape}')     # (batch_n, 6)
+            print(f'    y:     {batch.y.shape}')     # (batch_n,)
+            print(f'    pos:   {batch.pos.shape}')   # (batch_n, 2)
+            print(f'    batch: {batch.batch.shape}') # (batch_n,)
+            print(f'    图数:  {batch.num_graphs}')
+            print(f'    总节点: {batch.x.size(0)}')
+            break
+
+        # 验证标签分布
+        labeled = batch.y[batch.y >= 0]
+        if len(labeled) > 0:
+            truck_pct = (labeled == 0).sum().item() / len(labeled) * 100
+            drone_pct = (labeled == 1).sum().item() / len(labeled) * 100
+            print(f'    标签: 卡车={truck_pct:.0f}%, 无人机={drone_pct:.0f}%')
+
+    print('\n' + '=' * 60)
+    print(' 全部通过！')
+    print('=' * 60)
+
+
+if __name__ == '__main__':
+    _test_dataloader()
