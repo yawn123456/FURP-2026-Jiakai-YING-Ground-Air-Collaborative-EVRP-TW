@@ -4,6 +4,8 @@ week 6 2026/7/23
 
 # GNN-HMOA 实验总结报告
 
+../src/experiments/hmoa_impl.v5
+
 ## 1. GAT 模型参数
 
 | 参数 | 值 |
